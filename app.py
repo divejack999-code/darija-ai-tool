@@ -15,6 +15,10 @@ from docx import Document
 st.set_page_config(page_title="AI Studio: Darija & Amazigh", page_icon="🎬", layout="wide")
 st.title("🎬 استوديو الذكاء الاصطناعي الشامل")
 
+# --- تهيئة الذاكرة ديال الجلسة (Session State) ---
+if 'saved_voices' not in st.session_state:
+    st.session_state.saved_voices = []
+
 # --- دوال مساعدة للتحميل ---
 def script_to_text(script_data):
     text = f"العنوان: {script_data.get('title', '')}\n\n"
@@ -60,7 +64,13 @@ with st.sidebar:
     magic_hour_key = st.text_input("2. Magic Hour API Key (اختياري - للفيديو AI):", type="password")
     
     st.markdown("---")
-    language = st.selectbox("اللغة/اللهجة:", ["الدارجة المغربية", "الأمازيغية", "العربية الفصحى"])
+    # قائمة اللغات واللهجات الموسعة
+    language = st.selectbox("اللغة/اللهجة:", [
+        "الدارجة المغربية", "الأمازيغية", "العربية الفصحى", 
+        "المصرية", "الخليجية", "السورية", "اللبنانية", "العراقية",
+        "الإنجليزية (English)", "الفرنسية (Français)", 
+        "الإسبانية (Español)", "الألمانية (Deutsch)", "التركية (Türkçe)"
+    ])
     tone = st.selectbox("الستايل (Tone):", ["الكوميدية", "الدرامية", "التشويق", "إعلاني (تجاري)"])
     
     st.markdown("---")
@@ -110,6 +120,7 @@ with tab1:
     
     voice_col1, voice_col2 = st.columns(2)
     
+    # قائمة الأصوات الموسعة
     available_voices = {
         "Zephyr (Bright - Female)": "Zephyr", "Puck (Upbeat - Male)": "Puck",
         "Charon (Informative - Male)": "Charon", "Kore (Firm - Female)": "Kore",
@@ -155,7 +166,7 @@ with tab1:
                             model = genai.GenerativeModel(selected_model_name)
                             
                             prompt = f"""
-                            أنت كاتب سيناريوهات ومخرج محترف. كتب سيناريو فيديو باللهجة {language}.
+                            أنت كاتب سيناريوهات ومخرج محترف. كتب سيناريو فيديو باللهجة/اللغة {language}.
                             الموضوع: {topic}
                             الستايل: {tone}
                             
@@ -260,7 +271,7 @@ with tab1:
                         client = google_genai.Client(api_key=gemini_api_key)
                         
                         tts_instruction = f"""
-                        أنت ممثل صوتي محترف. اقرأ النص التالي بصوت طبيعي.
+                        أنت ممثل صوتي محترف. اقرأ النص التالي باللغة/اللهجة {language} بصوت طبيعي.
                         تحذير مهم: أي كلام بين قوسين ( ) أو [ ] هو تعليمات إخراجية للتمثيل فقط (بحال: كيهضر مع راسو، يضحك). 
                         ممنوع تنطق الكلمات التي بين القوسين. طبق الإحساس فقط وتجاوز القوسين.
                         
@@ -284,14 +295,37 @@ with tab1:
                         )
                         
                         audio_data = response.candidates[0].content.parts[0].inline_data.data
-                        with open("voiceover.wav", "wb") as f:
-                            f.write(audio_data)
+                        
+                        # --- خزن الصوت فـ الذاكرة ---
+                        st.session_state.saved_voices.append({
+                            "text": full_dialogue,
+                            "voice": selected_voice,
+                            "style": style_prompt,
+                            "audio": audio_data
+                        })
                         
                         st.success(f"✅ الصوت جاهز باستعمال {selected_voice}!")
-                        st.audio("voiceover.wav", format="audio/wav")
+                        st.audio(audio_data, format="audio/wav")
                         
                     except Exception as e:
                         st.error(f"وقع مشكل فـ توليد الصوت: {e}")
+
+    # --- سجل الأصوات المحفوظة ---
+    if st.session_state.saved_voices:
+        st.markdown("---")
+        st.subheader("💾 سجل الأصوات المحفوظة (Voice History)")
+        for i, item in enumerate(reversed(st.session_state.saved_voices)):
+            with st.expander(f"🎵 صوت {len(st.session_state.saved_voices) - i} - الصوت: {item['voice']}"):
+                st.write(f"**النص:** {item['text']}")
+                st.write(f"**الستايل:** {item['style']}")
+                st.audio(item['audio'], format="audio/wav")
+                
+                # زر لاسترجاع الإعدادات
+                if st.button("🔄 استعمل هاد الإعدادات", key=f"restore_{i}"):
+                    st.session_state.restore_voice = item['voice']
+                    st.session_state.restore_style = item['style']
+                    st.session_state.restore_text = item['text']
+                    st.rerun()
 
 # ==========================================
 # التاب 2: توليد فيديو بالذكاء الاصطناعي (Magic Hour)
