@@ -110,7 +110,7 @@ with tab1:
                         import google.generativeai as genai
                         with st.spinner("جاري كتابة السيناريو..."):
                             genai.configure(api_key=gemini_api_key)
-                            model = genai.GenerativeModel('gemini-1.5-flash') # نموذج مستقر
+                            model = genai.GenerativeModel('gemini-2.5-flash-lite') # نموذج مستقر
                             
                             prompt = f"""
                             أنت كاتب سيناريوهات ومخرج محترف. كتب سيناريو فيديو باللهجة {language}.
