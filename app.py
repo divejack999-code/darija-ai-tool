@@ -1,4 +1,5 @@
 import streamlit as st
+import base64
 import google.generativeai as genai
 import asyncio
 import edge_tts
