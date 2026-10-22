@@ -26,6 +26,8 @@ if 'script_data' not in st.session_state:
     st.session_state.script_data = None
 if 'full_audio_bytes' not in st.session_state:
     st.session_state.full_audio_bytes = None
+if 'generated_music' not in st.session_state:
+    st.session_state.generated_music = []
 
 # --- دوال مساعدة للتحميل ---
 def script_to_text(script_data):
@@ -127,12 +129,13 @@ with st.sidebar:
     )
     max_retries = st.number_input("عدد المحاولات فحالة وقع خطأ:", min_value=1, max_value=10, value=3)
 
-# --- تقسيم الواجهة لـ 4 تابات ---
-tab1, tab2, tab3, tab4 = st.tabs([
+# --- تقسيم الواجهة لـ 5 تابات ---
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "📝 1. السيناريو والصوت", 
     "🤖 2. توليد فيديو AI", 
     "🎬 3. التوليد الأوتوماتيكي (مكتبة فيديو)", 
-    "🧩 4. تجميع الفيديو النهائي"
+    "🧩 4. تجميع الفيديو النهائي",
+    "🎵 5. توليد الموسيقى"
 ])
 
 # ==========================================
@@ -279,7 +282,6 @@ with tab1:
                         النص: {full_dialogue}
                         """
                         
-                        # --- التعديل: استعمال نموذج TTS المخصص ---
                         response = client.models.generate_content(
                             model="gemini-3.8-flash-tts", 
                             contents=tts_instruction,
@@ -295,7 +297,6 @@ with tab1:
                             )
                         )
                         
-                        # --- التعديل: التحقق من وجود بيانات صوتية ---
                         if (response.candidates and 
                             response.candidates[0].content.parts and 
                             response.candidates[0].content.parts[0].inline_data is not None):
@@ -307,9 +308,7 @@ with tab1:
                             st.success(f"✅ الصوت جاهز!")
                             st.audio(audio_data, format="audio/wav")
                         else:
-                            # إلا كان الرد خاوي، نعطيو رسالة واضحة
                             st.error("⚠️ النموذج ما رجعش بيانات صوتية. يمكن النص فيه شي حاجة منعها فيلتر الأمان، ولا النموذج ما قداش يولد الصوت. عافاك جرب تبدل شي كلمة ولا تبدل الصوت.")
-                            # باش نتأكدو، نطبوعو سبب التوقف إلا كان كاين
                             if response.candidates and response.candidates[0].finish_reason:
                                 st.warning(f"سبب التوقف: {response.candidates[0].finish_reason}")
                         
@@ -487,3 +486,96 @@ with tab4:
                         st.download_button("⬇️ تحميل الفيديو", data=file, file_name="final_ready_video.mp4", mime="video/mp4")
             except Exception as e:
                 st.error(f"وقع مشكل: {e}")
+
+# ==========================================
+# التاب 5: توليد الموسيقى بالذكاء الاصطناعي (Lyria 3)
+# ==========================================
+with tab5:
+    st.header("🎵 توليد الموسيقى بالذكاء الاصطناعي (Google Lyria 3)")
+    st.write("هاد الخيار كيستعمل نموذج **Lyria 3** من Google، وهو **مجاني** وكيخدم بنفس مفتاح Gemini API اللي عندك. تقدر تولد موسيقى خلفية للفيديوهات ديالك.")
+    
+    if not gemini_api_key:
+        st.warning("⚠️ عافاك دخل Google Gemini API Key فالشريط الجانبي باش تخدم هاد الخيار.")
+    else:
+        music_prompt = st.text_area(
+            "وصف الموسيقى اللي بغيتي:", 
+            height=100,
+            placeholder="مثال: موسيقى هادئة للدراسة، بيانو وجيتار، إيقاع بطيء، 80 BPM..."
+        )
+        
+        col_m1, col_m2 = st.columns(2)
+        with col_m1:
+            music_model = st.selectbox(
+                "نوع الموسيقى:",
+                ["مقطع قصير (30 ثانية) - lyria-3-clip-preview", "أغنية كاملة (2-3 دقائق) - lyria-3-pro-preview"]
+            )
+        with col_m2:
+            instrumental_only = st.checkbox("موسيقى بدون كلام (Instrumental)", value=True)
+        
+        if st.button("🎵 توليد الموسيقى", use_container_width=True):
+            with st.spinner("جاري توليد الموسيقى... هادشي ممكن ياخد شي ثواني."):
+                try:
+                    from google import genai as google_genai
+                    from google.genai import types
+                    
+                    client = google_genai.Client(api_key=gemini_api_key)
+                    
+                    # نضيفو تعليمات باش تكون موسيقى صافية
+                    full_prompt = music_prompt
+                    if instrumental_only:
+                        full_prompt += " (instrumental only, no vocals, no lyrics)"
+                    
+                    # كنختارو النموذج
+                    model_name = "lyria-3-clip-preview" if "clip" in music_model else "lyria-3-pro-preview"
+                    
+                    response = client.models.generate_content(
+                        model=model_name,
+                        contents=full_prompt,
+                    )
+                    
+                    # نستخرجو الصوت من الرد
+                    audio_data = None
+                    for part in response.parts:
+                        if part.inline_data is not None:
+                            audio_data = part.inline_data.data
+                            break
+                    
+                    if audio_data:
+                        # نحفظو الموسيقى فـ الجلسة
+                        st.session_state.generated_music.append({
+                            "prompt": music_prompt,
+                            "model": model_name,
+                            "audio": audio_data
+                        })
+                        
+                        st.success("✅ الموسيقى جاهزة!")
+                        st.audio(audio_data, format="audio/mp3")
+                        
+                        st.download_button(
+                            "⬇️ تحميل الموسيقى (MP3)",
+                            data=audio_data,
+                            file_name="generated_music.mp3",
+                            mime="audio/mpeg",
+                            use_container_width=True
+                        )
+                    else:
+                        st.error("⚠️ النموذج ما رجعش بيانات صوتية. عافاك جرب تبدل الوصف.")
+                        
+                except Exception as e:
+                    st.error(f"وقع مشكل فـ توليد الموسيقى: {e}")
+
+    # --- سجل الموسيقى المحفوظة ---
+    if st.session_state.generated_music:
+        st.markdown("---")
+        st.subheader("💾 سجل الموسيقى")
+        for i, item in enumerate(reversed(st.session_state.generated_music)):
+            with st.expander(f"🎵 موسيقى {len(st.session_state.generated_music) - i} - {item['model']}"):
+                st.write(f"**الوصف:** {item['prompt']}")
+                st.audio(item['audio'], format="audio/mp3")
+                st.download_button(
+                    f"⬇️ تحميل",
+                    data=item['audio'],
+                    file_name=f"music_{i}.mp3",
+                    mime="audio/mpeg",
+                    key=f"dl_music_{i}"
+                )
