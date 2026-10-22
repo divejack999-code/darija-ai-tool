@@ -404,7 +404,7 @@ with tab5:
             if st.button("🎵 توليد الموسيقى (ACE-Step HF)", use_container_width=True, key="btn_ace_step_hf"):
                 with st.spinner("جاري التوليد عبر Hugging Face... قد يستغرق بعض الوقت."):
                     try:
-                        from gradio_client import Client
+                        from gradio_client import Client, handle_file
                         import ast
                         
                         try:
@@ -428,8 +428,16 @@ with tab5:
                                 p_type_str = str(p_type).lower()
                                 p_name_lower = p_name.lower()
                                 
-                                # 1. خانات الاختيار من قائمة (Choices)
-                                if "literal" in p_type_str or "enum" in p_type_str or "choices" in p_type_str:
+                                # 1. معالجة الملفات (FileData) باستخدام handle_file
+                                if "filedata" in p_type_str or "file" in p_type_str:
+                                    if p_name_lower in ["init_audio", "reference_audio", "audio", "input_audio"]:
+                                        # إذا كان هناك مسار ملف، نمرره، وإلا نمرر None
+                                        kwargs[p_name] = handle_file(None)
+                                    else:
+                                        kwargs[p_name] = handle_file(None)
+                                
+                                # 2. خانات الاختيار من قائمة (Choices)
+                                elif "literal" in p_type_str or "enum" in p_type_str or "choices" in p_type_str:
                                     choices = []
                                     match = re.search(r"\[(.*?)\]", str(p_type))
                                     if match:
@@ -446,20 +454,20 @@ with tab5:
                                     else:
                                         kwargs[p_name] = "acestep-v15-turbo" if "model" in p_name_lower or "mode" in p_name_lower else ""
                                 
-                                # 2. خانات النصوص
+                                # 3. خانات النصوص
                                 elif p_name_lower in ["captions", "caption", "prompt", "text"]:
                                     kwargs[p_name] = ace_step_prompt
                                 elif "string" in p_type_str or (isinstance(p_type, dict) and p_type.get("type") == "string"):
                                     kwargs[p_name] = ""
                                 
-                                # 3. خانات الأرقام (تجنب 0.0 وتعيين القيم الافتراضية)
+                                # 4. خانات الأرقام
                                 elif "number" in p_type_str or (isinstance(p_type, dict) and p_type.get("type") == "number"):
                                     if "step" in p_name_lower:
-                                        kwargs[p_name] = 8 # القيمة الافتراضية لـ inference_steps
+                                        kwargs[p_name] = 8
                                     elif "guidance" in p_name_lower or "cfg" in p_name_lower:
                                         kwargs[p_name] = 7.0
                                     elif "duration" in p_name_lower or "length" in p_name_lower:
-                                        kwargs[p_name] = -1 # -1 تعني تلقائي
+                                        kwargs[p_name] = -1
                                     elif "batch" in p_name_lower:
                                         kwargs[p_name] = 2
                                     elif "bpm" in p_name_lower or "tempo" in p_name_lower:
@@ -467,9 +475,9 @@ with tab5:
                                     elif "seed" in p_name_lower:
                                         kwargs[p_name] = -1
                                     else:
-                                        kwargs[p_name] = 1 # حد أدنى آمن
+                                        kwargs[p_name] = 1
                                 
-                                # 4. خانات Boolean
+                                # 5. خانات Boolean
                                 elif "boolean" in p_type_str or (isinstance(p_type, dict) and p_type.get("type") == "boolean"):
                                     kwargs[p_name] = False
                                 
