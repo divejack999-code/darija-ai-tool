@@ -17,6 +17,9 @@ from docx import Document
 st.set_page_config(page_title="AI Studio: Darija & Amazigh", page_icon="🎬", layout="wide")
 st.title("🎬 استوديو الذكاء الاصطناعي الشامل")
 
+# --- المفاتيح المحفوظة (Defaults) ---
+DEFAULT_HF_API_KEY = "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"
+
 # --- إعدادات الحفظ الدائم ---
 DATA_DIR = "persistent_data"
 AUDIO_DIR = os.path.join(DATA_DIR, "audios")
@@ -34,7 +37,9 @@ def load_persistent_data():
             st.session_state.last_custom_script = data.get("last_custom_script", "")
             st.session_state.saved_api_key = data.get("gemini_api_key", "")
             st.session_state.treblo_api_key = data.get("treblo_api_key", "")
-            st.session_state.hf_api_key = data.get("hf_api_key", "")
+            # إلا كان المفتاح المحفوظ خاوي، كنعطيو المفتاح الافتراضي
+            saved_hf = data.get("hf_api_key", "")
+            st.session_state.hf_api_key = saved_hf if saved_hf else DEFAULT_HF_API_KEY
             
             main_audio_path = os.path.join(AUDIO_DIR, "main_voice.wav")
             if os.path.exists(main_audio_path):
@@ -65,7 +70,7 @@ def save_persistent_data():
             "last_custom_script": st.session_state.last_custom_script,
             "gemini_api_key": st.session_state.get("gemini_api_key_input", ""),
             "treblo_api_key": st.session_state.get("treblo_api_key_input", ""),
-            "hf_api_key": st.session_state.get("hf_api_key_input", ""),
+            "hf_api_key": st.session_state.get("hf_api_key_input", DEFAULT_HF_API_KEY),
             "saved_voices_meta": voices_meta
         }
         with open(STATE_FILE, "w", encoding="utf-8") as f:
@@ -90,7 +95,7 @@ if 'full_audio_bytes' not in st.session_state: st.session_state.full_audio_bytes
 if 'last_custom_script' not in st.session_state: st.session_state.last_custom_script = ""
 if 'saved_api_key' not in st.session_state: st.session_state.saved_api_key = ""
 if 'treblo_api_key' not in st.session_state: st.session_state.treblo_api_key = ""
-if 'hf_api_key' not in st.session_state: st.session_state.hf_api_key = ""
+if 'hf_api_key' not in st.session_state: st.session_state.hf_api_key = DEFAULT_HF_API_KEY
 
 if not st.session_state.get('data_loaded', False):
     load_persistent_data()
@@ -109,7 +114,8 @@ with st.sidebar:
         st.session_state.treblo_api_key = treblo_api_key
         save_persistent_data()
 
-    hf_api_key = st.text_input("3. Hugging Face API Key (اختياري):", value=st.session_state.hf_api_key, type="password", key="hf_api_key_input")
+    # هنا كنعرضو المفتاح ديال Hugging Face اللي عطيتيني
+    hf_api_key = st.text_input("3. Hugging Face API Key:", value=st.session_state.hf_api_key, type="password", key="hf_api_key_input")
     if hf_api_key != st.session_state.hf_api_key:
         st.session_state.hf_api_key = hf_api_key
         save_persistent_data()
@@ -397,13 +403,14 @@ with tab5:
         )
         
         if ace_step_source == "Hugging Face Space (سحابي)":
-            st.info("💡 يستخدم هذا الخيار مساحة Hugging Face. يفضل إدخال Hugging Face API Key في الشريط الجانبي.")
+            st.info("💡 يستخدم هذا الخيار مساحة Hugging Face. المفتاح ديالك محفوظ أوتوماتيكياً.")
             ace_step_prompt = st.text_area("وصف الموسيقى (ACE-Step):", height=100)
             
             if st.button("🎵 توليد الموسيقى (ACE-Step HF)", use_container_width=True):
                 with st.spinner("جاري التوليد عبر Hugging Face... قد يستغرق بعض الوقت."):
                     try:
                         from gradio_client import Client
+                        # كنستعملو المفتاح اللي فـ st.session_state
                         client = Client("ACE-Step/ACE-Step-v1.5", hf_token=st.session_state.hf_api_key if st.session_state.hf_api_key else None)
                         result = client.predict(
                             caption=ace_step_prompt,
