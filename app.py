@@ -123,7 +123,7 @@ with tab1:
                                 "scene_number": 1,
                                 "location": "المكان",
                                 "visual_description": "وصف المشهد",
-                                "dialogue": "الحوار أو التعليق الصوتي"
+                                "dialogue": "الحوار الصوتي، وإلا كان كاين شي حركة ولا إحساس، حطو بين قوسين بحال (كيهضر مع راسو) ولا (كيبكي)، ولكن كتب الكلام العادي من بعدو."
                             }}
                         ]
                     }}
@@ -172,13 +172,22 @@ with tab1:
                             # هنا كنستعملو speech_metadata.style باش نتحكمو فـ الأسلوب
                             style = style_prompt if style_prompt else "Read the following text naturally and expressively."
                             
+                            # هنا كنعطيو تعليمات للنموذج باش يمثل الأقواس وميقراهاش
+                            tts_instruction = f"""
+                            اقرأ النص التالي بصوت طبيعي.
+                            عندما تجد أي كلام بين قوسين مثل (كيهضر مع راسو) أو (يضحك) أو (بنبرة حزينة)، قم بأداء النبرة أو الحركة المذكورة، ولكن لا تنطق الكلمات التي بين القوسين.
+                            
+                            النص:
+                            {full_dialogue}
+                            """
+                            
                             interaction = client.interactions.create(
                                 model="gemini-3.8-flash-tts",
                                 input=[{
                                     "type": "user_input",
                                     "content": [{
                                         "type": "text",
-                                        "text": full_dialogue,
+                                        "text": tts_instruction,
                                         "annotations": [{
                                             "type": "speech_metadata",
                                             "style": style
