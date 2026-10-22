@@ -122,7 +122,7 @@ with st.sidebar:
     st.markdown("---")
     st.subheader("🛡️ إعدادات الحماية")
     selected_model_name = st.selectbox(
-        "اختار نموذج الذكاء الاصطناعي:",
+        "اختار نموذج الذكاء الاصطناعي (للسيناريو):",
         ["gemini-3.5-flash", "gemini-3.8-flash", "gemini-2.5-flash"]
     )
     max_retries = st.number_input("عدد المحاولات فحالة وقع خطأ:", min_value=1, max_value=10, value=3)
@@ -279,22 +279,39 @@ with tab1:
                         النص: {full_dialogue}
                         """
                         
+                        # --- التعديل: استعمال نموذج TTS المخصص ---
                         response = client.models.generate_content(
-                            model="gemini-3.5-flash",  # <-- هنا التعديل
+                            model="gemini-3.8-flash-tts", 
                             contents=tts_instruction,
                             config=types.GenerateContentConfig(
                                 response_modalities=["AUDIO"],
-                                speech_config=types.SpeechConfig(voice_config=types.VoiceConfig(prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=selected_voice)))
+                                speech_config=types.SpeechConfig(
+                                    voice_config=types.VoiceConfig(
+                                        prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                                            voice_name=selected_voice
+                                        )
+                                    )
+                                )
                             )
                         )
                         
-                        audio_data = response.candidates[0].content.parts[0].inline_data.data
-                        st.session_state.full_audio_bytes = audio_data
-                        
-                        st.session_state.saved_voices.append({"text": full_dialogue, "voice": selected_voice, "style": style_prompt, "audio": audio_data})
-                        
-                        st.success(f"✅ الصوت جاهز!")
-                        st.audio(audio_data, format="audio/wav")
+                        # --- التعديل: التحقق من وجود بيانات صوتية ---
+                        if (response.candidates and 
+                            response.candidates[0].content.parts and 
+                            response.candidates[0].content.parts[0].inline_data is not None):
+                            
+                            audio_data = response.candidates[0].content.parts[0].inline_data.data
+                            st.session_state.full_audio_bytes = audio_data
+                            st.session_state.saved_voices.append({"text": full_dialogue, "voice": selected_voice, "style": style_prompt, "audio": audio_data})
+                            
+                            st.success(f"✅ الصوت جاهز!")
+                            st.audio(audio_data, format="audio/wav")
+                        else:
+                            # إلا كان الرد خاوي، نعطيو رسالة واضحة
+                            st.error("⚠️ النموذج ما رجعش بيانات صوتية. يمكن النص فيه شي حاجة منعها فيلتر الأمان، ولا النموذج ما قداش يولد الصوت. عافاك جرب تبدل شي كلمة ولا تبدل الصوت.")
+                            # باش نتأكدو، نطبوعو سبب التوقف إلا كان كاين
+                            if response.candidates and response.candidates[0].finish_reason:
+                                st.warning(f"سبب التوقف: {response.candidates[0].finish_reason}")
                         
                     except Exception as e:
                         st.error(f"وقع مشكل فـ توليد الصوت: {e}")
