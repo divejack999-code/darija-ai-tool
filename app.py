@@ -17,6 +17,9 @@ from docx import Document
 st.set_page_config(page_title="AI Studio: Darija & Amazigh", page_icon="🎬", layout="wide")
 st.title("🎬 استوديو الذكاء الاصطناعي الشامل")
 
+# --- المفاتيح المحفوظة (Defaults) ---
+DEFAULT_ACESTEP_API_KEY = "821f692a10974eaa960316f37a9001f6"
+
 # --- إعدادات الحفظ الدائم ---
 DATA_DIR = "persistent_data"
 AUDIO_DIR = os.path.join(DATA_DIR, "audios")
@@ -33,7 +36,11 @@ def load_persistent_data():
             st.session_state.script_data = data.get("script_data")
             st.session_state.last_custom_script = data.get("last_custom_script", "")
             st.session_state.saved_api_key = data.get("gemini_api_key", "")
-            st.session_state.treblo_api_key = data.get("treblo_api_key", "")
+            
+            # إلا كان المفتاح المحفوظ خاوي، كنعطيو المفتاح الافتراضي
+            saved_acestep = data.get("acestep_api_key", "")
+            st.session_state.acestep_api_key = saved_acestep if saved_acestep else DEFAULT_ACESTEP_API_KEY
+            
             st.session_state.hf_api_key = data.get("hf_api_key", "")
             
             main_audio_path = os.path.join(AUDIO_DIR, "main_voice.wav")
@@ -64,7 +71,7 @@ def save_persistent_data():
             "script_data": st.session_state.script_data,
             "last_custom_script": st.session_state.last_custom_script,
             "gemini_api_key": st.session_state.get("gemini_api_key_input", ""),
-            "treblo_api_key": st.session_state.get("treblo_api_key_input", ""),
+            "acestep_api_key": st.session_state.get("acestep_api_key_input", DEFAULT_ACESTEP_API_KEY),
             "hf_api_key": st.session_state.get("hf_api_key_input", ""),
             "saved_voices_meta": voices_meta
         }
@@ -89,7 +96,7 @@ if 'script_data' not in st.session_state: st.session_state.script_data = None
 if 'full_audio_bytes' not in st.session_state: st.session_state.full_audio_bytes = None
 if 'last_custom_script' not in st.session_state: st.session_state.last_custom_script = ""
 if 'saved_api_key' not in st.session_state: st.session_state.saved_api_key = ""
-if 'treblo_api_key' not in st.session_state: st.session_state.treblo_api_key = ""
+if 'acestep_api_key' not in st.session_state: st.session_state.acestep_api_key = DEFAULT_ACESTEP_API_KEY
 if 'hf_api_key' not in st.session_state: st.session_state.hf_api_key = ""
 
 if not st.session_state.get('data_loaded', False):
@@ -104,9 +111,10 @@ with st.sidebar:
         st.session_state.saved_api_key = gemini_api_key
         save_persistent_data()
     
-    treblo_api_key = st.text_input("2. Treblo API Key (اختياري):", value=st.session_state.treblo_api_key, type="password", key="treblo_api_key_input")
-    if treblo_api_key != st.session_state.treblo_api_key:
-        st.session_state.treblo_api_key = treblo_api_key
+    # هنا كنعرضو المفتاح ديال ACE Music اللي عطيتيني
+    acestep_api_key = st.text_input("2. ACE Music API Key (مجاني):", value=st.session_state.acestep_api_key, type="password", key="acestep_api_key_input")
+    if acestep_api_key != st.session_state.acestep_api_key:
+        st.session_state.acestep_api_key = acestep_api_key
         save_persistent_data()
 
     hf_api_key = st.text_input("3. Hugging Face API Key (اختياري):", value=st.session_state.hf_api_key, type="password", key="hf_api_key_input")
@@ -317,7 +325,7 @@ with tab5:
     
     music_option = st.radio("🎼 طريقة الحصول على الموسيقى:", [
         "توليد موسيقى بالذكاء الاصطناعي (Google Lyria)", 
-        "توليد موسيقى باستعمال Treblo API", 
+        "توليد موسيقى باستعمال ACE Music API (مجاني)", 
         "توليد موسيقى باستعمال MusicGen (Hugging Face)", 
         "رفع ملف موسيقى جاهز (إلغاء التوليد)"
     ], horizontal=False)
@@ -343,49 +351,78 @@ with tab5:
                     except Exception as e:
                         st.error(f"وقع مشكل (الكوطا ممكن تكون كملات): {e}")
     
-    elif music_option == "توليد موسيقى باستعمال Treblo API":
-        st.subheader("🎼 توليد الموسيقى بـ Treblo")
-        TREBLO_API_V2 = "https://api.treblo.com/v1/generations/v2"
-        TREBLO_API_V3 = "https://api.treblo.com/v1/generations/v3"
+    elif music_option == "توليد موسيقى باستعمال ACE Music API (مجاني)":
+        st.subheader("🎼 توليد الموسيقى بـ ACE Music API")
+        st.info("💡 ACE Music API مجاني تماماً. المفتاح ديالك محفوظ أوتوماتيكياً.")
         
-        treblo_version = st.selectbox("اختر إصدار Treblo API:", ["v3 (موصى به)", "v2"], index=0)
-        selected_treblo_url = TREBLO_API_V3 if "v3" in treblo_version else TREBLO_API_V2
-        
-        if not st.session_state.treblo_api_key:
-            st.warning("⚠️ عافاك دخل Treblo API Key فالشريط الجانبي.")
+        if not st.session_state.acestep_api_key:
+            st.warning("⚠️ عافاك دخل ACE Music API Key فالشريط الجانبي.")
         else:
-            treblo_prompt = st.text_area("وصف الموسيقى (Treblo):", height=100)
-            if st.button("🎵 توليد الموسيقى (Treblo)", use_container_width=True):
-                with st.spinner(f"جاري التوليد عبر Treblo ({treblo_version})..."):
+            ace_music_prompt = st.text_area("وصف الموسيقى (ACE Music):", height=100, placeholder="مثال: a happy summer pop beat, uplifting synths")
+            
+            if st.button("🎵 توليد الموسيقى (ACE Music)", use_container_width=True, key="btn_ace_music"):
+                with st.spinner("جاري التوليد عبر ACE Music API..."):
                     try:
-                        headers = {"Authorization": f"Bearer {st.session_state.treblo_api_key}", "Content-Type": "application/json"}
-                        payload = {"prompt": treblo_prompt}
-                        res = requests.post(selected_treblo_url, headers=headers, json=payload)
-                        res.raise_for_status()
-                        task_id = res.json().get("task_id")
+                        headers = {
+                            "Authorization": f"Bearer {st.session_state.acestep_api_key}",
+                            "Content-Type": "application/json"
+                        }
                         
-                        if not task_id:
-                            st.error("لم يتم استلام task_id.")
+                        # 1. إرسال طلب التوليد
+                        payload = {
+                            "prompt": ace_music_prompt,
+                            "duration": 30,
+                            "task_type": "text2music"
+                        }
+                        
+                        res = requests.post(
+                            "https://api.acemusic.ai/v1/music/generate",
+                            headers=headers,
+                            json=payload
+                        )
+                        res.raise_for_status()
+                        result = res.json()
+                        
+                        job_id = result.get("job_id") or result.get("task_id") or result.get("id")
+                        
+                        if not job_id:
+                            st.error(f"لم يتم استلام job_id. الرد: {result}")
                         else:
-                            status_url = f"https://api.treblo.com/v1/generations/status/{task_id}"
-                            while True:
-                                status_res = requests.get(status_url, headers=headers)
-                                status = status_res.json().get("status")
-                                if status == "SUCCESS": break
-                                elif status == "FAILURE":
-                                    st.error("فشل التوليد."); break
-                                time.sleep(5)
+                            st.info(f"تم إنشاء المهمة: {job_id}. جاري الانتظار...")
                             
-                            if status == "SUCCESS":
-                                result_res = requests.get(f"https://api.treblo.com/v1/generations/{task_id}", headers=headers)
-                                song_paths = result_res.json().get("song_paths", [])
-                                if song_paths:
-                                    st.success("✅ الموسيقى جاهزة (Treblo)!")
-                                    st.audio(song_paths[0], format="audio/mp3")
-                                else:
-                                    st.error("لم يتم العثور على رابط الصوت.")
+                            # 2. الاستعلام عن الحالة
+                            status_url = f"https://api.acemusic.ai/v1/jobs/{job_id}"
+                            audio_url = None
+                            
+                            for _ in range(60):  # 60 محاولة (حوالي دقيقة)
+                                time.sleep(2)
+                                status_res = requests.get(status_url, headers=headers)
+                                status_data = status_res.json()
+                                status = status_data.get("status")
+                                
+                                if status == "succeeded" or status == "completed":
+                                    audio_url = status_data.get("audio_url")
+                                    break
+                                elif status == "failed":
+                                    st.error(f"فشل التوليد: {status_data}")
+                                    break
+                            
+                            # 3. تحميل الصوت
+                            if audio_url:
+                                audio_data = requests.get(audio_url).content
+                                st.success("✅ الموسيقى جاهزة (ACE Music)!")
+                                st.audio(audio_data, format="audio/mp3")
+                                
+                                # حفظ فـ الجلسة
+                                st.session_state.generated_music.append({
+                                    "prompt": ace_music_prompt,
+                                    "audio": audio_data
+                                })
+                            else:
+                                st.error("لم يتم الحصول على رابط الصوت بعد انتهاء المهلة.")
+                                
                     except Exception as e:
-                        st.error(f"وقع مشكل فـ Treblo: {e}")
+                        st.error(f"وقع مشكل مع ACE Music API: {e}")
 
     elif music_option == "توليد موسيقى باستعمال MusicGen (Hugging Face)":
         st.subheader("🎼 توليد الموسيقى بـ MusicGen")
