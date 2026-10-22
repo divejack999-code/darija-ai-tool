@@ -8,7 +8,7 @@ import time
 import tempfile
 import numpy as np
 from PIL import Image
-from moviepy.editor import ImageClip, AudioFileClip, concatenate_videoclips, VideoFileClip, CompositeVideoClip, vfx, afx
+from moviepy import ImageClip, AudioFileClip, concatenate_videoclips, VideoFileClip, CompositeVideoClip, vfx, afx
 
 # --- إعدادات الواجهة ---
 st.set_page_config(page_title="AI Studio: Darija & Amazigh", page_icon="🎬", layout="wide")
@@ -198,9 +198,9 @@ with tab3:
                         
                         clip = ImageClip(img_array).set_duration(duration_per_image)
                         # تأثير الزوم البطيء
-                        clip = clip.resize(lambda t: 1 + 0.05 * t)
+                        clip = clip.resized(lambda t: 1 + 0.05 * t)
                         # باش نبقاو فوسط الشاشة
-                        clip = clip.set_position('center')
+                        clip = clip.with_position('center')
                         
                         clips.append(clip)
                         os.remove(tmp_path) # نمسحو الملف المؤقت
@@ -257,9 +257,9 @@ with tab4:
                         audio_clip = AudioFileClip(tmp_audio_path)
                         # تأكد أن الصوت ماشي أطول من الفيديو بزاف
                         if audio_clip.duration > final_clip.duration:
-                            final_clip = final_clip.set_duration(audio_clip.duration)
+                            final_clip = final_clip.with_duration(audio_clip.duration)
                         
-                        final_clip = final_clip.set_audio(audio_clip)
+                        final_clip = final_clip.with_audio(audio_clip)
                     
                     # 4. تصدير الفيديو
                     output_path = "final_ready_video.mp4"
