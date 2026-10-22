@@ -404,7 +404,7 @@ with tab5:
             if st.button("🎵 توليد الموسيقى (ACE-Step HF)", use_container_width=True, key="btn_ace_step_hf"):
                 with st.spinner("جاري التوليد عبر Hugging Face... قد يستغرق بعض الوقت."):
                     try:
-                        from gradio_client import Client, handle_file
+                        from gradio_client import Client
                         import ast
                         
                         try:
@@ -428,13 +428,9 @@ with tab5:
                                 p_type_str = str(p_type).lower()
                                 p_name_lower = p_name.lower()
                                 
-                                # 1. معالجة الملفات (FileData) باستخدام handle_file
+                                # 1. تجاهل معاملات الملفات تماماً (هذا هو الحل)
                                 if "filedata" in p_type_str or "file" in p_type_str:
-                                    if p_name_lower in ["init_audio", "reference_audio", "audio", "input_audio"]:
-                                        # إذا كان هناك مسار ملف، نمرره، وإلا نمرر None
-                                        kwargs[p_name] = handle_file(None)
-                                    else:
-                                        kwargs[p_name] = handle_file(None)
+                                    continue
                                 
                                 # 2. خانات الاختيار من قائمة (Choices)
                                 elif "literal" in p_type_str or "enum" in p_type_str or "choices" in p_type_str:
@@ -460,7 +456,7 @@ with tab5:
                                 elif "string" in p_type_str or (isinstance(p_type, dict) and p_type.get("type") == "string"):
                                     kwargs[p_name] = ""
                                 
-                                # 4. خانات الأرقام
+                                # 4. خانات الأرقام (تجنب 0.0 وتعيين القيم الافتراضية)
                                 elif "number" in p_type_str or (isinstance(p_type, dict) and p_type.get("type") == "number"):
                                     if "step" in p_name_lower:
                                         kwargs[p_name] = 8
