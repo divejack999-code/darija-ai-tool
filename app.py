@@ -17,9 +17,6 @@ from docx import Document
 st.set_page_config(page_title="AI Studio: Darija & Amazigh", page_icon="🎬", layout="wide")
 st.title("🎬 استوديو الذكاء الاصطناعي الشامل")
 
-# --- المفاتيح المحفوظة (Defaults) ---
-DEFAULT_HF_API_KEY = "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"
-
 # --- إعدادات الحفظ الدائم ---
 DATA_DIR = "persistent_data"
 AUDIO_DIR = os.path.join(DATA_DIR, "audios")
@@ -37,9 +34,7 @@ def load_persistent_data():
             st.session_state.last_custom_script = data.get("last_custom_script", "")
             st.session_state.saved_api_key = data.get("gemini_api_key", "")
             st.session_state.treblo_api_key = data.get("treblo_api_key", "")
-            # إلا كان المفتاح المحفوظ خاوي، كنعطيو المفتاح الافتراضي
-            saved_hf = data.get("hf_api_key", "")
-            st.session_state.hf_api_key = saved_hf if saved_hf else DEFAULT_HF_API_KEY
+            st.session_state.hf_api_key = data.get("hf_api_key", "")
             
             main_audio_path = os.path.join(AUDIO_DIR, "main_voice.wav")
             if os.path.exists(main_audio_path):
@@ -70,7 +65,7 @@ def save_persistent_data():
             "last_custom_script": st.session_state.last_custom_script,
             "gemini_api_key": st.session_state.get("gemini_api_key_input", ""),
             "treblo_api_key": st.session_state.get("treblo_api_key_input", ""),
-            "hf_api_key": st.session_state.get("hf_api_key_input", DEFAULT_HF_API_KEY),
+            "hf_api_key": st.session_state.get("hf_api_key_input", ""),
             "saved_voices_meta": voices_meta
         }
         with open(STATE_FILE, "w", encoding="utf-8") as f:
@@ -95,7 +90,7 @@ if 'full_audio_bytes' not in st.session_state: st.session_state.full_audio_bytes
 if 'last_custom_script' not in st.session_state: st.session_state.last_custom_script = ""
 if 'saved_api_key' not in st.session_state: st.session_state.saved_api_key = ""
 if 'treblo_api_key' not in st.session_state: st.session_state.treblo_api_key = ""
-if 'hf_api_key' not in st.session_state: st.session_state.hf_api_key = DEFAULT_HF_API_KEY
+if 'hf_api_key' not in st.session_state: st.session_state.hf_api_key = ""
 
 if not st.session_state.get('data_loaded', False):
     load_persistent_data()
@@ -114,7 +109,6 @@ with st.sidebar:
         st.session_state.treblo_api_key = treblo_api_key
         save_persistent_data()
 
-    # هنا كنعرضو المفتاح ديال Hugging Face اللي عطيتيني
     hf_api_key = st.text_input("3. Hugging Face API Key:", value=st.session_state.hf_api_key, type="password", key="hf_api_key_input")
     if hf_api_key != st.session_state.hf_api_key:
         st.session_state.hf_api_key = hf_api_key
@@ -399,51 +393,81 @@ with tab5:
         ace_step_source = st.radio(
             "اختر مصدر ACE-Step:",
             ["Hugging Face Space (سحابي)", "خادم محلي (Local Server)"],
-            horizontal=True
+            horizontal=True,
+            key="ace_step_source_radio"
         )
         
         if ace_step_source == "Hugging Face Space (سحابي)":
-            st.info("💡 يستخدم هذا الخيار مساحة Hugging Face. المفتاح ديالك محفوظ أوتوماتيكياً.")
-            ace_step_prompt = st.text_area("وصف الموسيقى (ACE-Step):", height=100)
+            st.info("💡 يستخدم هذا الخيار مساحة Hugging Face. المفتاح ديالك كيتحفظ أوتوماتيكياً فالشريط الجانبي.")
+            ace_step_prompt = st.text_area("وصف الموسيقى (ACE-Step):", height=100, key="ace_step_prompt_hf")
             
-            if st.button("🎵 توليد الموسيقى (ACE-Step HF)", use_container_width=True):
+            if st.button("🎵 توليد الموسيقى (ACE-Step HF)", use_container_width=True, key="btn_ace_step_hf"):
                 with st.spinner("جاري التوليد عبر Hugging Face... قد يستغرق بعض الوقت."):
                     try:
                         from gradio_client import Client
-                        # كنستعملو المفتاح اللي فـ st.session_state
+                        
+                        # الاتصال بالمساحة مع معالجة خطأ الوسيط token/hf_token
                         try:
-    client = Client("ACE-Step/ACE-Step-v1.5", token=st.session_state.hf_api_key)
-except TypeError:
-    try:
-        client = Client("ACE-Step/ACE-Step-v1.5", hf_token=st.session_state.hf_api_key)
-    except TypeError:
-        client = Client("ACE-Step/ACE-Step-v1.5")
+                            client = Client("ACE-Step/ACE-Step-v1.5", token=st.session_state.hf_api_key)
+                        except TypeError:
+                            client = Client("ACE-Step/ACE-Step-v1.5", hf_token=st.session_state.hf_api_key)
+                        except Exception:
+                            client = Client("ACE-Step/ACE-Step-v1.5")
+                        
+                        # اكتشاف اسم الدالة الصحيح تلقائياً
+                        api_name_to_use = None
+                        try:
+                            api_info = client.view_api(return_format="dict")
+                            named_endpoints = api_info.get("named_endpoints", {})
+                            
+                            for endpoint_name in named_endpoints.keys():
+                                if "generate" in endpoint_name.lower() or "music" in endpoint_name.lower() or "__call__" in endpoint_name:
+                                    api_name_to_use = endpoint_name
+                                    break
+                        except Exception:
+                            pass
+                        
+                        if not api_name_to_use:
+                            api_name_to_use = "/__call__"
+                        
+                        st.info(f"جاري استخدام الدالة: {api_name_to_use}")
+                        
+                        # استدعاء الدالة
                         result = client.predict(
                             caption=ace_step_prompt,
                             duration=30,
-                            api_name="/generate_music"
+                            api_name=api_name_to_use
                         )
                         
-                        if result and "audio" in result:
-                            audio_path = result["audio"]
-                            with open(audio_path, "rb") as f:
+                        # معالجة النتيجة
+                        audio_data = None
+                        if isinstance(result, str) and os.path.exists(result):
+                            with open(result, "rb") as f:
                                 audio_data = f.read()
+                        elif isinstance(result, dict) and "audio" in result:
+                            audio_path = result["audio"]
+                            if isinstance(audio_path, str) and os.path.exists(audio_path):
+                                with open(audio_path, "rb") as f:
+                                    audio_data = f.read()
+                        
+                        if audio_data:
                             st.success("✅ الموسيقى جاهزة (ACE-Step HF)!")
                             st.audio(audio_data, format="audio/wav")
                         else:
-                            st.error("لم يتم استلام ملف صوتي من Hugging Face.")
+                            st.error(f"لم يتم استلام ملف صوتي صالح. النتيجة المستلمة: {result}")
+                            
                     except Exception as e:
                         st.error(f"وقع مشكل مع Hugging Face: {e}")
         
         else:
             st.info("💡 هذا الخيار يعمل فقط إذا كنت تشغل تطبيق Streamlit محلياً وتشغل خادم ACE-Step على المنفذ 8001.")
-            ace_step_prompt = st.text_area("وصف الموسيقى (ACE-Step):", height=100)
+            ace_step_prompt_local = st.text_area("وصف الموسيقى (ACE-Step):", height=100, key="ace_step_prompt_local")
             
-            if st.button("🎵 توليد الموسيقى (ACE-Step محلي)", use_container_width=True):
+            if st.button("🎵 توليد الموسيقى (ACE-Step محلي)", use_container_width=True, key="btn_ace_step_local"):
                 with st.spinner("جاري التوليد عبر الخادم المحلي..."):
                     try:
                         ace_api_url = "http://localhost:8001/generate"
-                        payload = {"prompt": ace_step_prompt, "duration": 30}
+                        payload = {"prompt": ace_step_prompt_local, "duration": 30}
                         res = requests.post(ace_api_url, json=payload, timeout=10)
                         res.raise_for_status()
                         result = res.json()
