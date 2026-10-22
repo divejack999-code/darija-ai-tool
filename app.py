@@ -2,129 +2,274 @@ import streamlit as st
 import google.generativeai as genai
 import asyncio
 import edge_tts
+import json
 import os
+import time
+import tempfile
+import numpy as np
+from PIL import Image
+from moviepy.editor import ImageClip, AudioFileClip, concatenate_videoclips, VideoFileClip, CompositeVideoClip, vfx, afx
 
 # --- إعدادات الواجهة ---
-st.set_page_config(page_title="AI Darija & Amazigh Studio", page_icon="🎬", layout="wide")
-st.title("🎬 استوديو الذكاء الاصطناعي: الدارجة والأمازيغية")
-st.write("مرحبا بيك! هاد الأداة كتكتب ليك السيناريو وكتولد ليك الصوت (Voiceover) جاهز للفيديو ديالك.")
+st.set_page_config(page_title="AI Studio: Darija & Amazigh", page_icon="🎬", layout="wide")
+st.title("🎬 استوديو الذكاء الاصطناعي الشامل")
 
-# --- الشريط الجانبي (Sidebar) ---
+# --- الشريط الجانبي (الإعدادات) ---
 with st.sidebar:
-    st.header("⚙️ الإعدادات")
-    api_key = st.text_input("دخل Google Gemini API Key ديالك:", type="password")
-    st.markdown("[كيفاش تاخد API Key؟](https://aistudio.google.com/app/apikey)")
+    st.header("⚙️ الإعدادات العامة")
+    gemini_api_key = st.text_input("1. Google Gemini API Key (ضروري):", type="password")
+    magic_hour_key = st.text_input("2. Magic Hour API Key (اختياري - للفيديو AI):", type="password")
     
-    format_type = st.selectbox("نوع الفيديو:", ["ريلز (قصير - 30 ثانية)", "فيديو طويل (دقيقة أو أكثر)"])
-    language = st.selectbox(
-        "اللغة/اللهجة:",
-        [
-            "الدارجة المغربية",
-            "الأمازيغية",
-            "العربية الفصحى",
-            "المصرية",
-            "الخليجية",
-            "السورية",
-            "الأردنية",
-            "العراقية",
-            "اللبنانية",
-            "الإماراتية",
-            "السعودية",
-            "التونسية",
-            "الجزائرية",
-            "التركية"
-        ]
-    )
+    st.markdown("---")
+    language = st.selectbox("اللغة/اللهجة:", ["الدارجة المغربية", "الأمازيغية", "العربية الفصحى"])
+    tone = st.selectbox("الستايل (Tone):", ["الكوميدية", "الدرامية", "التشويق", "إعلاني (تجاري)"])
 
-    tone = st.selectbox(
-        "الستايل (Tone):",
-        [
-            "الكوميدية",
-            "الأكشن والرسوم المتحركة",
-            "الأفلام الموسيقية والرقص",
-            "ما بعد الكارثة / النجاة المستقبلية",
-            "الفانتازيا والأسطوريات",
-            "الجريمة والسرقة",
-            "التشويق",
-            "الرعب",
-            "الإثارة",
-            "الدراما",
-            "إعلاني (تجاري)"
-        ]
-    )
-# --- الواجهة الرئيسية ---
-col1, col2 = st.columns([2, 1])
+# --- تقسيم الواجهة لـ 4 تابات ---
+tab1, tab2, tab3, tab4 = st.tabs([
+    "📝 1. السيناريو والصوت", 
+    "🤖 2. توليد فيديو AI", 
+    "🖼️ 3. صور + حركة كاميرا", 
+    "🎬 4. تجميع الفيديو النهائي"
+])
 
-with col1:
-    st.subheader("1. فكرة الفيديو أو الموضوع")
-    topic = st.text_area("كتب هنا شنو بغيتي تهضر عليه فالفيديو...", height=150, placeholder="مثال: نصائح للنجاح فالتجارة الإلكترونية...")
-
-with col2:
-    st.subheader("2. توليد المحتوى")
-    generate_btn = st.button("🚀 توليد السيناريو والصوت", use_container_width=True)
+# ==========================================
+# التاب 1: كتابة السيناريو وتوليد الصوت
+# ==========================================
+with tab1:
+    st.header("توليد السيناريو المفصل والتعليق الصوتي")
     
-    # مكان للصورة أو الفيديو (بحال اللي فالتصويرة ديالك)
-    st.info("📸 هنا غادي يبان الفيديو المولد (محتاج API ديال Veo أو Kling)")
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        topic = st.text_area("فكرة الفيديو:", height=150, placeholder="مثال: قصة شاب بغا يدير رجيم...")
+    with col2:
+        st.write("")
+        st.write("")
+        generate_script_btn = st.button("🚀 توليد السيناريو والصوت", use_container_width=True)
 
-# --- لوجيك الأداة ---
-if generate_btn:
-    if not api_key:
-        st.error("عافاك دخل الـ API Key ديال Google فالشريط الجانبي باش تخدم الأداة.")
-    elif not topic:
-        st.warning("عافاك كتب شي فكرة فالفيديو.")
-    else:
-        try:
-            # 1. توليد السيناريو بـ Gemini
-            with st.spinner("جاري كتابة السيناريو بالذكاء الاصطناعي..."):
-                genai.configure(api_key=api_key)
-                model = genai.GenerativeModel('gemini-1.5-pro')
+    if generate_script_btn:
+        if not gemini_api_key:
+            st.error("عافاك دخل Google Gemini API Key فالشريط الجانبي.")
+        elif not topic:
+            st.warning("عافاك كتب شي فكرة.")
+        else:
+            try:
+                with st.spinner("جاري كتابة السيناريو..."):
+                    genai.configure(api_key=gemini_api_key)
+                    model = genai.GenerativeModel('gemini-2.0-flash')
+                    
+                    prompt = f"""
+                    أنت كاتب سيناريوهات ومخرج محترف. كتب سيناريو فيديو باللهجة {language}.
+                    الموضوع: {topic}
+                    الستايل: {tone}
+                    
+                    خاصك ترجع الجواب على شكل JSON فقط، بلا أي كلام آخر:
+                    {{
+                        "title": "عنوان الفيديو",
+                        "characters": [{{"name": "اسم", "description": "وصف"}}],
+                        "locations": [{{"name": "مكان", "description": "وصف"}}],
+                        "scenes": [
+                            {{
+                                "scene_number": 1,
+                                "location": "المكان",
+                                "visual_description": "وصف المشهد",
+                                "dialogue": "الحوار أو التعليق الصوتي"
+                            }}
+                        ]
+                    }}
+                    """
+                    
+                    response = model.generate_content(prompt)
+                    script_json_text = response.text.strip()
+                    
+                    # تنقية النص من علامات الماركداون
+                    if script_json_text.startswith("```json"):
+                        script_json_text = script_json_text[7:]
+                    if script_json_text.endswith("```"):
+                        script_json_text = script_json_text[:-3]
+                    
+                    script_data = json.loads(script_json_text)
+                    st.success("✅ السيناريو جاهز!")
+                    
+                    st.subheader(f"🎬 {script_data.get('title')}")
+                    
+                    st.markdown("#### 👥 الشخصيات")
+                    for char in script_data.get('characters', []):
+                        st.markdown(f"- **{char['name']}**: {char['description']}")
+                        
+                    st.markdown("#### 📍 المواقع")
+                    for loc in script_data.get('locations', []):
+                        st.markdown(f"- **{loc['name']}**: {loc['description']}")
+                        
+                    st.markdown("#### 🎞️ المشاهد")
+                    full_dialogue = ""
+                    for scene in script_data.get('scenes', []):
+                        with st.expander(f"المشهد {scene['scene_number']} - {scene['location']}"):
+                            st.markdown(f"**الوصف البصري:** {scene['visual_description']}")
+                            st.markdown(f"**الحوار:** {scene['dialogue']}")
+                            full_dialogue += scene['dialogue'] + " "
+                    
+                    # تحميل السيناريو
+                    st.download_button("⬇️ تحميل السيناريو (JSON)", 
+                                       data=json.dumps(script_data, ensure_ascii=False, indent=4),
+                                       file_name="script.json", mime="application/json")
                 
-                prompt = f"""
-                أنت كاتب سيناريوهات محترف لمواقع التواصل الاجتماعي (فيسبوك ريلز وتيك توك).
-                كتب ليا سيناريو فيديو باللهجة {language}.
-                الموضوع: {topic}
-                نوع الفيديو: {format_type}
-                الستايل: {tone}
-                
-                الشروط:
-                - إلا كان ريلز، خليه قصير ومباشر (بين 50 و 80 كلمة).
-                - قسم السيناريو لـ (مشهد بصري) و (تعليق صوتي).
-                - فـالتعليق الصوتي، استعمل كلمات طبيعية ومفهومة.
-                """
-                
-                response = model.generate_content(prompt)
-                script = response.text
-                
-                st.success("✅ السيناريو جاهز!")
-                st.text_area("📝 السيناريو ديالك:", script, height=300)
+                with st.spinner("جاري توليد الصوت..."):
+                    if full_dialogue.strip():
+                        voice = "ar-MA-JamalNeural" if language == "الدارجة المغربية" else "ar-SA-HamedNeural"
+                        
+                        async def generate_audio():
+                            communicate = edge_tts.Communicate(full_dialogue, voice)
+                            await communicate.save("voiceover.mp3")
+                        asyncio.run(generate_audio())
+                        
+                        st.success("✅ الصوت جاهز (حمولو واستعملوه فـ التاب 4)")
+                        st.audio("voiceover.mp3", format="audio/mp3")
+            except Exception as e:
+                st.error(f"وقع شي مشكل: {e}")
 
-            # 2. توليد الصوت (TTS)
-            with st.spinner("جاري توليد الصوت..."):
-                # نقاءو النص من علامات السيناريو باش يقرا غير الكلام
-                if "تعليق صوتي:" in script:
-                    voice_text = script.split("تعليق صوتي:")[-1].strip()
-                else:
-                    voice_text = script
-                
-                # اختيار الصوت حسب اللغة
-                if language == "الدارجة المغربية":
-                    voice = "ar-MA-JamalNeural" # صوت راجل مغربي (كاين حتى ar-MA-MounaNeural لمرا)
-                else:
-                    # ملاحظة: الأمازيغية مازال ما كاينة فـ Edge TTS، هنا كنستعملو صوت عربي مؤقت
-                    # باش تخدم الأمازيغية 100%، خاصك تربط مع HuggingFace TTS API
-                    voice = "ar-SA-HamedNeural" 
-                    st.warning("⚠️ تنبيه: الصوت ديال الأمازيغية مازال ما مدعومش 100% فهاد الأداة، ولكن السيناريو مكتوب مزيان.")
+# ==========================================
+# التاب 2: توليد فيديو بالذكاء الاصطناعي (Magic Hour)
+# ==========================================
+with tab2:
+    st.header("توليد فيديو بالذكاء الاصطناعي (Text to Video)")
+    st.info("💡 هاد الخيار كيستعمل Magic Hour API. كيعطيك 100 كريديت مجاني كل نهار. الفيديو كيكون قصير (5 ثواني).")
+    
+    ai_prompt = st.text_area("وصف المشهد بالتفصيل (بالعربية أو الإنجليزية):", placeholder="A funny Moroccan man looking at a plate of msemen at 2 AM...")
+    
+    if st.button("🎥 توليد الفيديو", key="btn_ai_video"):
+        if not magic_hour_key:
+            st.error("عافاك دخل Magic Hour API Key فالشريط الجانبي.")
+        elif not ai_prompt:
+            st.warning("عافاك كتب وصف الفيديو.")
+        else:
+            try:
+                import magic_hour
+                client = magic_hour.Client(api_key=magic_hour_key)
+                with st.spinner("جاري توليد الفيديو... هادشي كياخد شي دقيقة."):
+                    job = client.video.generate(
+                        model="wan-2.2", # نموذج رخيص
+                        prompt=ai_prompt,
+                        duration=5,
+                        resolution="480p"
+                    )
+                    # الانتظار حتى يكتمل
+                    while job.status not in ["complete", "error"]:
+                        time.sleep(3)
+                        job = client.video.get(job.id)
+                        
+                    if job.status == "complete":
+                        st.success("✅ الفيديو جاهز!")
+                        st.video(job.video_url)
+                        st.markdown(f"[⬇️ تحميل الفيديو]({job.video_url})")
+                    else:
+                        st.error("وقع خطأ فالتوليد. جرب وصف آخر.")
+            except Exception as e:
+                st.error(f"خطأ فـ Magic Hour: {e}")
 
-                async def generate_audio():
-                    communicate = edge_tts.Communicate(voice_text, voice)
-                    await communicate.save("voiceover.mp3")
+# ==========================================
+# التاب 3: صور + حركة كاميرا (MoviePy)
+# ==========================================
+with tab3:
+    st.header("تحويل الصور لفيديو مع حركة كاميرا (Ken Burns)")
+    st.write("توليد الصور كديرو فـ Google Flow أو أي أداة، ومن بعد تحملوهم هنا وهاد الخيار غادي يعطيهم حركة زوينة.")
+    
+    uploaded_images = st.file_uploader("تحميل الصور (بترتيب المشاهد):", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
+    duration_per_image = st.slider("مدة كل صورة (بالثواني):", 2, 10, 4)
+    
+    if st.button("🎬 صناعة الفيديو من الصور"):
+        if not uploaded_images:
+            st.warning("عافاك حمل شي صور.")
+        else:
+            try:
+                with st.spinner("جاري تحريك الصور..."):
+                    clips = []
+                    for uploaded_file in uploaded_images:
+                        # نحفظو الصورة مؤقتاً
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_file:
+                            tmp_file.write(uploaded_file.getvalue())
+                            tmp_path = tmp_file.name
+                        
+                        # صايبو كليب ونطبقو عليه الزوم (Ken Burns)
+                        img = Image.open(tmp_path)
+                        # نصلحو الأبعاد باش تكون متساوية
+                        target_size = (1080, 1920) # مقاس الريلز
+                        img = img.resize(target_size)
+                        img_array = np.array(img)
+                        
+                        clip = ImageClip(img_array).set_duration(duration_per_image)
+                        # تأثير الزوم البطيء
+                        clip = clip.resize(lambda t: 1 + 0.05 * t)
+                        # باش نبقاو فوسط الشاشة
+                        clip = clip.set_position('center')
+                        
+                        clips.append(clip)
+                        os.remove(tmp_path) # نمسحو الملف المؤقت
+                    
+                    # تجميع المقاطع
+                    final_video = concatenate_videoclips(clips, method="compose")
+                    output_path = "ken_burns_video.mp4"
+                    final_video.write_videofile(output_path, fps=24, codec="libx264", audio=False)
+                    
+                    st.success("✅ الفيديو جاهز!")
+                    st.video(output_path)
+                    
+                    with open(output_path, "rb") as file:
+                        st.download_button("⬇️ تحميل الفيديو", data=file, file_name="animated_images.mp4", mime="video/mp4")
+            except Exception as e:
+                st.error(f"وقع مشكل فالمونتاج: {e}")
 
-                asyncio.run(generate_audio())
-                
-                st.success("✅ الصوت جاهز!")
-                st.audio("voiceover.mp3", format="audio/mp3")
-                
-                st.info("💡 دابا تقدر تحمل هاد الصوت، وتمشي لأي أداة بحال CapCut، وتحطو فوق الفيديو اللي صورتي بيدك أو ولدتي بالـ AI.")
-
-        except Exception as e:
-            st.error(f"وقع شي مشكل: {e}")
+# ==========================================
+# التاب 4: تجميع الفيديو النهائي
+# ==========================================
+with tab4:
+    st.header("تجميع الفيديو النهائي للرفع")
+    st.write("حمل هنا الفيديوهات اللي ولدتي (من التاب 2 أو 3) والصوت اللي ولدتي (من التاب 1) باش تجمعهم ففيديو واحد.")
+    
+    uploaded_videos = st.file_uploader("تحميل مقاطع الفيديو (بترتيب المشاهد):", type=["mp4", "mov"], accept_multiple_files=True)
+    uploaded_audio = st.file_uploader("تحميل الصوت (Voiceover - MP3):", type=["mp3", "wav"])
+    
+    if st.button("🚀 تجميع ودمج الفيديو"):
+        if not uploaded_videos:
+            st.warning("عافاك حمل شي فيديوهات.")
+        else:
+            try:
+                with st.spinner("جاري تجميع الفيديو..."):
+                    video_clips = []
+                    
+                    # 1. تحميل المقاطع
+                    for uploaded_file in uploaded_videos:
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_vid:
+                            tmp_vid.write(uploaded_file.getvalue())
+                            tmp_vid_path = tmp_vid.name
+                        
+                        clip = VideoFileClip(tmp_vid_path)
+                        video_clips.append(clip)
+                    
+                    # 2. تجميع الفيديوهات
+                    final_clip = concatenate_videoclips(video_clips, method="compose")
+                    
+                    # 3. إضافة الصوت إلا كان كاين
+                    if uploaded_audio:
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_audio:
+                            tmp_audio.write(uploaded_audio.getvalue())
+                            tmp_audio_path = tmp_audio.name
+                        
+                        audio_clip = AudioFileClip(tmp_audio_path)
+                        # تأكد أن الصوت ماشي أطول من الفيديو بزاف
+                        if audio_clip.duration > final_clip.duration:
+                            final_clip = final_clip.set_duration(audio_clip.duration)
+                        
+                        final_clip = final_clip.set_audio(audio_clip)
+                    
+                    # 4. تصدير الفيديو
+                    output_path = "final_ready_video.mp4"
+                    final_clip.write_videofile(output_path, fps=24, codec="libx264", audio_codec="aac")
+                    
+                    st.success("✅ الفيديو النهائي جاهز للرفع على فيسبوك ريلز!")
+                    st.video(output_path)
+                    
+                    with open(output_path, "rb") as file:
+                        st.download_button("⬇️ تحميل الفيديو النهائي", data=file, file_name="final_ready_video.mp4", mime="video/mp4")
+                        
+            except Exception as e:
+                st.error(f"وقع مشكل فالتجميع: {e}")
