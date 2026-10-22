@@ -414,7 +414,7 @@ with tab5:
                         except Exception:
                             client = Client("ACE-Step/Ace-Step-v1.5")
                         
-                        # --- جلب واجهة الـ API والبحث عن خيار النموذج ---
+                        # --- جلب واجهة الـ API والبحث عن خيار النموذج ونوع المهمة ---
                         api_info = client.view_api(return_format="dict")
                         endpoints = api_info.get("named_endpoints", {})
                         endpoint_to_use = "/generation_wrapper"
@@ -428,20 +428,48 @@ with tab5:
                                 p_type = param.get("type", {})
                                 p_type_str = str(p_type).lower()
                                 
-                                # تصحيح خيار النموذج الإجباري
-                                if "model" in p_name.lower() or "checkpoint" in p_name.lower() or "config" in p_name.lower():
+                                # 1. تصحيح خيار نوع المهمة (Task Type / Mode) الإجباري
+                                if "task_type" in p_name.lower() or "mode" in p_name.lower() or "literal" in p_type_str or "enum" in p_type_str:
+                                    if "task_type" in p_name.lower() or "mode" in p_name.lower():
+                                        kwargs[p_name] = "simple" # القيمة الافتراضية الصحيحة
+                                    else:
+                                        try:
+                                            # محاولة استخراج الخيارات
+                                            if isinstance(p_type, str):
+                                                match = re.search(r'\[(.*?)\]', p_type)
+                                                if match:
+                                                    import ast
+                                                    choices = ast.literal_eval(f"[{match.group(1)}]")
+                                                    kwargs[p_name] = choices[0]
+                                                else:
+                                                    kwargs[p_name] = "simple"
+                                            elif isinstance(p_type, dict) and "enum" in p_type:
+                                                kwargs[p_name] = p_type["enum"][0]
+                                            else:
+                                                kwargs[p_name] = "simple"
+                                        except:
+                                            kwargs[p_name] = "simple"
+                                
+                                # 2. تصحيح خيار النموذج
+                                elif "model" in p_name.lower() or "checkpoint" in p_name.lower() or "config" in p_name.lower():
                                     kwargs[p_name] = "acestep-v15-turbo"
-                                # خانات النصوص
+                                
+                                # 3. خانة النص (الوصف)
                                 elif p_name in ["captions", "caption", "prompt", "text"]:
                                     kwargs[p_name] = ace_step_prompt
-                                elif "string" in p_type_str or p_type.get("type") == "string":
+                                
+                                # 4. خانات النصوص العادية
+                                elif "string" in p_type_str or (isinstance(p_type, dict) and p_type.get("type") == "string"):
                                     kwargs[p_name] = ""
-                                # الخانات الرقمية
-                                elif "number" in p_type_str or p_type.get("type") == "number":
+                                
+                                # 5. خانات الأرقام
+                                elif "number" in p_type_str or (isinstance(p_type, dict) and p_type.get("type") == "number"):
                                     kwargs[p_name] = 0.0
-                                # خانات الاختيار (Boolean)
-                                elif "boolean" in p_type_str or p_type.get("type") == "boolean":
+                                
+                                # 6. خانات الاختيار (Boolean)
+                                elif "boolean" in p_type_str or (isinstance(p_type, dict) and p_type.get("type") == "boolean"):
                                     kwargs[p_name] = False
+                                
                                 else:
                                     kwargs[p_name] = None
                             
