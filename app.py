@@ -411,7 +411,13 @@ with tab5:
                     try:
                         from gradio_client import Client
                         # كنستعملو المفتاح اللي فـ st.session_state
-                        client = Client("ACE-Step/ACE-Step-v1.5", token=st.session_state.hf_api_key if st.session_state.hf_api_key else None)
+                        try:
+    client = Client("ACE-Step/ACE-Step-v1.5", token=st.session_state.hf_api_key)
+except TypeError:
+    try:
+        client = Client("ACE-Step/ACE-Step-v1.5", hf_token=st.session_state.hf_api_key)
+    except TypeError:
+        client = Client("ACE-Step/ACE-Step-v1.5")
                         result = client.predict(
                             caption=ace_step_prompt,
                             duration=30,
