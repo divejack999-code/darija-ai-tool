@@ -135,7 +135,7 @@ with tab1:
                     }}
                     """
                     
-                    response = model.generate_content(prompt)
+                    response = generate_with_retry(model, prompt)
                     script_json_text = response.text.strip()
                     
                     if script_json_text.startswith("```json"):
