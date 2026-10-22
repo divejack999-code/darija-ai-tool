@@ -16,13 +16,14 @@ from docx import Document
 st.set_page_config(page_title="AI Studio: Darija & Amazigh", page_icon="🎬", layout="wide")
 st.title("🎬 استوديو الذكاء الاصطناعي الشامل")
 
+# --- المفتاح المحفوظ ديال Pixabay ---
+DEFAULT_PIXABAY_KEY = "58178676-7dca3797f2ac366b67263077a"
+
 # --- تهيئة الذاكرة ديال الجلسة (Session State) ---
 if 'saved_voices' not in st.session_state:
     st.session_state.saved_voices = []
 if 'script_data' not in st.session_state:
     st.session_state.script_data = None
-if 'scene_audios' not in st.session_state:
-    st.session_state.scene_audios = []
 if 'full_audio_bytes' not in st.session_state:
     st.session_state.full_audio_bytes = None
 
@@ -73,33 +74,41 @@ def fetch_pixabay_videos(query, api_key, per_page=1):
         response.raise_for_status()
         hits = response.json().get('hits', [])
         if hits:
-            return hits[0]['videos']['large']['url'] # ناخدو الجودة العالية
+            return hits[0]['videos']['large']['url']
     except Exception:
         return None
 
-def fetch_pexels_videos(query, api_key, per_page=1):
-    url = "https://api.pexels.com/videos/search"
-    headers = {"Authorization": api_key}
-    params = {"query": query, "per_page": per_page, "orientation": "portrait"} # كنفضلو الطولي
+# --- دالة جديدة لجلب الفيديوهات من Coverr ---
+def fetch_coverr_videos(query, per_page=1):
+    url = "https://api.coverr.co/videos"
+    params = {"query": query, "page_size": per_page}
     try:
-        response = requests.get(url, headers=headers, params=params)
+        response = requests.get(url, params=params)
         response.raise_for_status()
-        videos = response.json().get('videos', [])
-        if videos:
-            # نلقاو أفضل جودة
-            video_files = videos[0]['video_files']
-            video_files.sort(key=lambda x: x['width'], reverse=True)
-            return video_files[0]['link']
-    except Exception:
+        data = response.json()
+        hits = data.get('hits', [])
+        if hits:
+            # Coverr كتوفر بزاف ديال الروابط، كنقلبو على أفضل جودة متاحة
+            video_urls = hits[0].get('urls', {})
+            # كنفضلو mp4_download ولا mp4_1080
+            best_url = video_urls.get('mp4_download') or video_urls.get('mp4_1080') or video_urls.get('mp4_720')
+            return best_url
+    except Exception as e:
+        print(f"خطأ في Coverr: {e}")
         return None
 
 # --- الشريط الجانبي ---
 with st.sidebar:
     st.header("⚙️ الإعدادات العامة")
     gemini_api_key = st.text_input("1. Google Gemini API Key (ضروري):", type="password")
-    pixabay_api_key = st.text_input("2. Pixabay API Key (ضروري للتوليد الأوتوماتيكي):", type="password")
-    pexels_api_key = st.text_input("3. Pexels API Key (اختياري - باش يلقى نتائج أكثر):", type="password")
-    magic_hour_key = st.text_input("4. Magic Hour API Key (اختياري - فيديو AI):", type="password")
+    
+    pixabay_api_key = st.text_input(
+        "2. Pixabay API Key (اختياري - كبديل):", 
+        value=DEFAULT_PIXABAY_KEY,
+        type="password"
+    )
+    
+    magic_hour_key = st.text_input("3. Magic Hour API Key (اختياري):", type="password")
     
     st.markdown("---")
     language = st.selectbox("اللغة/اللهجة:", [
@@ -190,7 +199,6 @@ with tab1:
                             genai.configure(api_key=gemini_api_key)
                             model = genai.GenerativeModel(selected_model_name)
                             
-                            # زدنا الكلمات المفتاحية بالإنجليزية
                             prompt = f"""
                             أنت كاتب سيناريوهات ومخرج محترف. كتب سيناريو فيديو باللهجة {language}.
                             الموضوع: {topic}
@@ -257,7 +265,6 @@ with tab1:
                 else:
                     full_dialogue = custom_script
 
-            # --- توليد الصوت ---
             if full_dialogue.strip():
                 with st.spinner(f"جاري توليد الصوت..."):
                     darija_phonetics = {"القهوة": "لْقَهْوَة", "المسمن": "لْمَسْمَنْ", "الفريجيدير": "لْفْرِيجِيدِير", "الحلاق": "لْحَلَّاق", "الكيك": "لْكِيك", "ديال": "دْيَال", "واش": "وَاشْ"}
@@ -332,116 +339,98 @@ with tab2:
 # ==========================================
 with tab3:
     st.header("🎬 التوليد الأوتوماتيكي من السيناريو")
-    st.write("هاد الخيار كياخد السيناريو اللي ولدتي فـ التاب 1، كيقلب على فيديوهات مناسبة ليه فـ Pixabay و Pexels، وكيقطعهم على حساب مدة الصوت، وكيخرج ليك فيديو جاهز.")
+    st.write("هاد الخيار كياخد السيناريو اللي ولدتي فـ التاب 1، كيقلب على فيديوهات مناسبة ليه فـ Coverr و Pixabay، وكيقطعهم على حساب مدة الصوت، وكيخرج ليك فيديو جاهز.")
     
     if st.session_state.script_data is None:
         st.warning("⚠️ عافاك سير للتاب 1 وتولد السيناريو والصوت الأول.")
     elif st.session_state.full_audio_bytes is None:
         st.warning("⚠️ عافاك ولد الصوت فـ التاب 1 الأول باش نعرفو المدة ديال الفيديو.")
     else:
-        if not pixabay_api_key and not pexels_api_key:
-            st.error("⚠️ خاصك تدخل على الأقل API Key ديال Pixabay أو Pexels فالشريط الجانبي باش هاد الخيار يخدم.")
-        else:
-            # إعدادات الفيديو
-            st.subheader("⚙️ إعدادات الفيديو النهائي")
-            col1, col2 = st.columns(2)
-            with col1:
-                aspect_ratio = st.selectbox("أبعاد الفيديو:", ["9:16 (ريلز/تيك توك)", "16:9 (يوتيوب)", "1:1 (مربع)"])
-            with col2:
-                quality = st.selectbox("الجودة:", ["720p", "1080p", "480p"])
+        st.subheader("⚙️ إعدادات الفيديو النهائي")
+        col1, col2 = st.columns(2)
+        with col1:
+            aspect_ratio = st.selectbox("أبعاد الفيديو:", ["9:16 (ريلز/تيك توك)", "16:9 (يوتيوب)", "1:1 (مربع)"])
+        with col2:
+            quality = st.selectbox("الجودة:", ["720p", "1080p", "480p"])
 
-            if st.button("🚀 بدء التوليد الأوتوماتيكي للفيديو", use_container_width=True):
-                with st.spinner("جاري البحث وتحميل وتجميع الفيديوهات... هادشي ممكن ياخد شي دقيقة."):
-                    try:
-                        # 1. نجهزو الملفات المؤقتة
-                        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_audio:
-                            tmp_audio.write(st.session_state.full_audio_bytes)
-                            audio_path = tmp_audio.name
+        if st.button("🚀 بدء التوليد الأوتوماتيكي للفيديو", use_container_width=True):
+            with st.spinner("جاري البحث وتحميل وتجميع الفيديوهات... هادشي ممكن ياخد شي دقيقة."):
+                try:
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_audio:
+                        tmp_audio.write(st.session_state.full_audio_bytes)
+                        audio_path = tmp_audio.name
+                    
+                    full_audio_clip = AudioFileClip(audio_path)
+                    total_duration = full_audio_clip.duration
+                    
+                    scenes = st.session_state.script_data.get('scenes', [])
+                    if not scenes:
+                        st.error("ما كاينش مشاهد فـ السيناريو.")
+                    else:
+                        duration_per_scene = total_duration / len(scenes)
                         
-                        full_audio_clip = AudioFileClip(audio_path)
-                        total_duration = full_audio_clip.duration
+                        aspect_map = {"9:16 (ريلز/تيك توك)": (1080, 1920), "16:9 (يوتيوب)": (1920, 1080), "1:1 (مربع)": (1080, 1080)}
+                        quality_map = {"480p": 480, "720p": 720, "1080p": 1080}
                         
-                        scenes = st.session_state.script_data.get('scenes', [])
-                        if not scenes:
-                            st.error("ما كاينش مشاهد فـ السيناريو.")
-                        else:
-                            # 2. حساب المدة لكل مشهد
-                            duration_per_scene = total_duration / len(scenes)
+                        target_h = quality_map[quality]
+                        target_w = int(target_h * aspect_map[aspect_ratio][0] / aspect_map[aspect_ratio][1])
+                        
+                        video_clips = []
+                        
+                        for i, scene in enumerate(scenes):
+                            keyword = scene.get('search_keyword', 'abstract background')
+                            st.write(f"🔍 كنقلب على مشهد {i+1}: '{keyword}'...")
                             
-                            # 3. إعدادات الأبعاد
-                            aspect_map = {"9:16 (ريلز/تيك توك)": (1080, 1920), "16:9 (يوتيوب)": (1920, 1080), "1:1 (مربع)": (1080, 1080)}
-                            quality_map = {"480p": 480, "720p": 720, "1080p": 1080}
+                            video_url = None
+                            # 1. نقلب فـ Coverr الأول (جودة عالية وبدون مفتاح)
+                            video_url = fetch_coverr_videos(keyword)
+                            # 2. إلا ما لقاش، نقلب فـ Pixabay (بالمفتاح ديالك)
+                            if not video_url and pixabay_api_key:
+                                video_url = fetch_pixabay_videos(keyword, pixabay_api_key)
                             
-                            target_h = quality_map[quality]
-                            target_w = int(target_h * aspect_map[aspect_ratio][0] / aspect_map[aspect_ratio][1])
-                            
-                            video_clips = []
-                            
-                            # 4. نقلب على فيديو لكل مشهد
-                            for i, scene in enumerate(scenes):
-                                keyword = scene.get('search_keyword', 'abstract background')
-                                st.write(f"🔍 كنقلب على مشهد {i+1}: '{keyword}'...")
+                            if video_url:
+                                vid_data = requests.get(video_url).content
+                                with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_vid:
+                                    tmp_vid.write(vid_data)
+                                    vid_path = tmp_vid.name
                                 
-                                video_url = None
-                                # نقلب فـ Pexels الأول (جودة عالية)
-                                if pexels_api_key:
-                                    video_url = fetch_pexels_videos(keyword, pexels_api_key)
-                                # إلا ما لقاش، نقلب فـ Pixabay
-                                if not video_url and pixabay_api_key:
-                                    video_url = fetch_pixabay_videos(keyword, pixabay_api_key)
+                                clip = VideoFileClip(vid_path)
                                 
-                                if video_url:
-                                    # تحميل الفيديو
-                                    vid_data = requests.get(video_url).content
-                                    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_vid:
-                                        tmp_vid.write(vid_data)
-                                        vid_path = tmp_vid.name
-                                    
-                                    clip = VideoFileClip(vid_path)
-                                    
-                                    # تقطيع الفيديو على حساب المدة
-                                    if clip.duration >= duration_per_scene:
-                                        clip = clip.subclipped(0, duration_per_scene)
-                                    else:
-                                        # إلا كان قصير، نعاودو نلوبوه
-                                        loop_count = int(duration_per_scene / clip.duration) + 1
-                                        from moviepy import concatenate_videoclips as concat
-                                        clip = concat([clip] * loop_count).subclipped(0, duration_per_scene)
-                                    
-                                    # تغيير الأبعاد (Crop + Resize باش ما يتلخبطش الشكل)
-                                    clip = clip.resized(height=target_h)
-                                    if clip.w < target_w:
-                                        # إلا كان رقيق، نكبروه
-                                        clip = clip.resized(width=target_w)
-                                    clip = clip.cropped(x_center=clip.w/2, y_center=clip.h/2, width=target_w, height=target_h)
-                                    
-                                    video_clips.append(clip)
-                                    os.remove(vid_path)
+                                if clip.duration >= duration_per_scene:
+                                    clip = clip.subclipped(0, duration_per_scene)
                                 else:
-                                    st.warning(f"⚠️ ما لقيتش فيديو لـ '{keyword}'. غادي نستعملو خلفية سوداء.")
-                                    # خلفية سوداء احتياطية
-                                    from moviepy import ColorClip
-                                    clip = ColorClip(size=(target_w, target_h), color=(0,0,0), duration=duration_per_scene)
-                                    video_clips.append(clip)
-                            
-                            # 5. تجميع الفيديو النهائي
-                            st.write("🎬 كنركب الفيديو النهائي...")
-                            final_video = concatenate_videoclips(video_clips, method="compose")
-                            
-                            # 6. إضافة الصوت
-                            final_video = final_video.with_audio(full_audio_clip)
-                            
-                            output_path = "auto_generated_video.mp4"
-                            final_video.write_videofile(output_path, fps=24, codec="libx264", audio_codec="aac")
-                            
-                            st.success("✅ الفيديو الأوتوماتيكي جاهز!")
-                            st.video(output_path)
-                            
-                            with open(output_path, "rb") as file:
-                                st.download_button("⬇️ تحميل الفيديو", data=file, file_name="auto_generated_video.mp4", mime="video/mp4")
+                                    loop_count = int(duration_per_scene / clip.duration) + 1
+                                    from moviepy import concatenate_videoclips as concat
+                                    clip = concat([clip] * loop_count).subclipped(0, duration_per_scene)
                                 
-                    except Exception as e:
-                        st.error(f"وقع مشكل فالتوليد: {e}")
+                                clip = clip.resized(height=target_h)
+                                if clip.w < target_w:
+                                    clip = clip.resized(width=target_w)
+                                clip = clip.cropped(x_center=clip.w/2, y_center=clip.h/2, width=target_w, height=target_h)
+                                
+                                video_clips.append(clip)
+                                os.remove(vid_path)
+                            else:
+                                st.warning(f"⚠️ ما لقيتش فيديو لـ '{keyword}'. غادي نستعملو خلفية سوداء.")
+                                from moviepy import ColorClip
+                                clip = ColorClip(size=(target_w, target_h), color=(0,0,0), duration=duration_per_scene)
+                                video_clips.append(clip)
+                        
+                        st.write("🎬 كنركب الفيديو النهائي...")
+                        final_video = concatenate_videoclips(video_clips, method="compose")
+                        final_video = final_video.with_audio(full_audio_clip)
+                        
+                        output_path = "auto_generated_video.mp4"
+                        final_video.write_videofile(output_path, fps=24, codec="libx264", audio_codec="aac")
+                        
+                        st.success("✅ الفيديو الأوتوماتيكي جاهز!")
+                        st.video(output_path)
+                        
+                        with open(output_path, "rb") as file:
+                            st.download_button("⬇️ تحميل الفيديو", data=file, file_name="auto_generated_video.mp4", mime="video/mp4")
+                            
+                except Exception as e:
+                    st.error(f"وقع مشكل فالتوليد: {e}")
 
 # ==========================================
 # التاب 4: تجميع الفيديو النهائي (يدوي)
