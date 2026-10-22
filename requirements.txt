@@ -1,6 +1,5 @@
 streamlit
-google-generativeai
-edge-tts
+google-genai
 moviepy>=2.0.0
 magic-hour
 Pillow
