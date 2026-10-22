@@ -109,7 +109,7 @@ with st.sidebar:
         st.session_state.treblo_api_key = treblo_api_key
         save_persistent_data()
 
-    hf_api_key = st.text_input("3. Hugging Face API Key:", value=st.session_state.hf_api_key, type="password", key="hf_api_key_input")
+    hf_api_key = st.text_input("3. Hugging Face API Key (اختياري):", value=st.session_state.hf_api_key, type="password", key="hf_api_key_input")
     if hf_api_key != st.session_state.hf_api_key:
         st.session_state.hf_api_key = hf_api_key
         save_persistent_data()
@@ -318,7 +318,7 @@ with tab5:
     music_option = st.radio("🎼 طريقة الحصول على الموسيقى:", [
         "توليد موسيقى بالذكاء الاصطناعي (Google Lyria)", 
         "توليد موسيقى باستعمال Treblo API", 
-        "توليد موسيقى باستعمال ACE-Step", 
+        "توليد موسيقى باستعمال MusicGen (Hugging Face)", 
         "رفع ملف موسيقى جاهز (إلغاء التوليد)"
     ], horizontal=False)
     
@@ -387,158 +387,52 @@ with tab5:
                     except Exception as e:
                         st.error(f"وقع مشكل فـ Treblo: {e}")
 
-    elif music_option == "توليد موسيقى باستعمال ACE-Step":
-        st.subheader("🎼 توليد الموسيقى بـ ACE-Step")
+    elif music_option == "توليد موسيقى باستعمال MusicGen (Hugging Face)":
+        st.subheader("🎼 توليد الموسيقى بـ MusicGen")
+        st.info("💡 MusicGen هو نموذج من Meta، مجاني ومستقر. كيعطيك موسيقى آلية (بدون كلام) من 5 حتى 30 ثانية.")
         
-        ace_step_source = st.radio(
-            "اختر مصدر ACE-Step:",
-            ["Hugging Face Space (سحابي)", "خادم محلي (Local Server)"],
-            horizontal=True,
-            key="ace_step_source_radio"
-        )
+        musicgen_prompt = st.text_area("وصف الموسيقى (MusicGen):", height=100, placeholder="مثال: a happy summer pop beat, uplifting synths, 120 bpm")
+        musicgen_duration = st.slider("المدة (بالثواني):", 5, 30, 10)
         
-        if ace_step_source == "Hugging Face Space (سحابي)":
-            st.info("💡 يستخدم هذا الخيار مساحة Hugging Face. المفتاح ديالك كيتحفظ أوتوماتيكياً فالشريط الجانبي.")
-            ace_step_prompt = st.text_area("وصف الموسيقى (ACE-Step):", height=100, key="ace_step_prompt_hf")
-            
-            if st.button("🎵 توليد الموسيقى (ACE-Step HF)", use_container_width=True, key="btn_ace_step_hf"):
-                with st.spinner("جاري التوليد عبر Hugging Face... قد يستغرق بعض الوقت."):
-                    try:
-                        from gradio_client import Client
-                        import ast
-                        
-                        try:
-                            client = Client("ACE-Step/Ace-Step-v1.5", token=st.session_state.hf_api_key)
-                        except TypeError:
-                            client = Client("ACE-Step/Ace-Step-v1.5", hf_token=st.session_state.hf_api_key)
-                        except Exception:
-                            client = Client("ACE-Step/Ace-Step-v1.5")
-                        
-                        api_info = client.view_api(return_format="dict")
-                        endpoints = api_info.get("named_endpoints", {})
-                        endpoint_to_use = "/generation_wrapper"
-                        
-                        if endpoint_to_use in endpoints:
-                            params_info = endpoints[endpoint_to_use].get("parameters", [])
-                            kwargs = {}
-                            
-                            for param in params_info:
-                                p_name = param.get("parameter_name")
-                                p_type = param.get("type", {})
-                                p_type_str = str(p_type).lower()
-                                p_name_lower = p_name.lower()
-                                
-                                # 1. تجاهل معاملات الملفات تماماً
-                                if "filedata" in p_type_str or "file" in p_type_str:
-                                    continue
-                                
-                                # 2. خانات الاختيار من قائمة (Choices)
-                                elif "literal" in p_type_str or "enum" in p_type_str or "choices" in p_type_str:
-                                    choices = []
-                                    match = re.search(r"\[(.*?)\]", str(p_type))
-                                    if match:
-                                        try:
-                                            choices = ast.literal_eval(f"[{match.group(1)}]")
-                                        except:
-                                            pass
-                                    if choices and isinstance(choices, list) and len(choices) > 0:
-                                        if "model" in p_name_lower or "mode" in p_name_lower:
-                                            turbo_choice = next((c for c in choices if "turbo" in str(c).lower()), None)
-                                            kwargs[p_name] = turbo_choice if turbo_choice else choices[0]
-                                        else:
-                                            kwargs[p_name] = choices[0]
-                                    else:
-                                        kwargs[p_name] = "acestep-v15-turbo" if "model" in p_name_lower or "mode" in p_name_lower else ""
-                                
-                                # 3. خانات النصوص
-                                elif p_name_lower in ["captions", "caption", "prompt", "text"]:
-                                    kwargs[p_name] = ace_step_prompt
-                                elif "string" in p_type_str or (isinstance(p_type, dict) and p_type.get("type") == "string"):
-                                    kwargs[p_name] = ""
-                                
-                                # 4. خانات الأرقام (توفير قيم افتراضية لكل شيء)
-                                elif "number" in p_type_str or (isinstance(p_type, dict) and p_type.get("type") == "number"):
-                                    if "step" in p_name_lower:
-                                        kwargs[p_name] = 8
-                                    elif "guidance" in p_name_lower or "cfg" in p_name_lower:
-                                        kwargs[p_name] = 7.0
-                                    elif "duration" in p_name_lower or "length" in p_name_lower:
-                                        kwargs[p_name] = -1
-                                    elif "batch" in p_name_lower:
-                                        kwargs[p_name] = 2
-                                    elif "bpm" in p_name_lower or "tempo" in p_name_lower:
-                                        kwargs[p_name] = 30
-                                    elif "seed" in p_name_lower:
-                                        kwargs[p_name] = -1
-                                    elif "latent_shift" in p_name_lower:
-                                        kwargs[p_name] = 0.0
-                                    elif "latent_rescale" in p_name_lower:
-                                        kwargs[p_name] = 1.0
-                                    elif "normalization_db" in p_name_lower:
-                                        kwargs[p_name] = 0.0
-                                    else:
-                                        kwargs[p_name] = 1
-                                
-                                # 5. خانات Boolean
-                                elif "boolean" in p_type_str or (isinstance(p_type, dict) and p_type.get("type") == "boolean"):
-                                    kwargs[p_name] = False
-                                
-                                else:
-                                    kwargs[p_name] = None
-                            
-                            st.info("جاري إرسال الطلب بالبارامترات الصحيحة...")
-                            result = client.predict(api_name=endpoint_to_use, **kwargs)
-                            
-                            audio_data = None
-                            if isinstance(result, str) and os.path.exists(result):
-                                with open(result, "rb") as f:
-                                    audio_data = f.read()
-                            elif isinstance(result, dict) and "audio" in result:
-                                audio_path = result["audio"]
-                                if isinstance(audio_path, str) and os.path.exists(audio_path):
-                                    with open(audio_path, "rb") as f:
-                                        audio_data = f.read()
-                            elif isinstance(result, tuple) and len(result) > 0:
-                                first_item = result[0]
-                                if isinstance(first_item, str) and os.path.exists(first_item):
-                                    with open(first_item, "rb") as f:
-                                        audio_data = f.read()
-                            
-                            if audio_data:
-                                st.success("✅ الموسيقى جاهزة (ACE-Step HF)!")
-                                st.audio(audio_data, format="audio/mp3")
-                            else:
-                                st.error(f"لم يتم استلام ملف صوتي صالح. النتيجة المستلمة: {result}")
-                        else:
-                            st.error(f"لم نتمكن من العثور على الدالة {endpoint_to_use} في المساحة. الدوال المتاحة: {list(endpoints.keys())}")
-                            
-                    except Exception as e:
-                        st.error(f"وقع مشكل مع Hugging Face: {e}")
-        
-        else:
-            st.info("💡 هذا الخيار يعمل فقط إذا كنت تشغل تطبيق Streamlit محلياً وتشغل خادم ACE-Step على المنفذ 8001.")
-            ace_step_prompt_local = st.text_area("وصف الموسيقى (ACE-Step):", height=100, key="ace_step_prompt_local")
-            
-            if st.button("🎵 توليد الموسيقى (ACE-Step محلي)", use_container_width=True, key="btn_ace_step_local"):
-                with st.spinner("جاري التوليد عبر الخادم المحلي..."):
-                    try:
-                        ace_api_url = "http://localhost:8001/generate"
-                        payload = {"prompt": ace_step_prompt_local, "duration": 30}
-                        res = requests.post(ace_api_url, json=payload, timeout=10)
-                        res.raise_for_status()
-                        result = res.json()
-                        audio_url = result.get("audio_url") or result.get("audio_path")
-                        
-                        if audio_url:
-                            st.success("✅ الموسيقى جاهزة (ACE-Step محلي)!")
-                            st.audio(audio_url, format="audio/wav")
-                        else:
-                            st.error("لم يتم العثور على رابط الصوت.")
-                    except requests.exceptions.ConnectionError:
-                        st.error("تعذر الاتصال بـ ACE-Step المحلي. تأكد من تشغيله على المنفذ 8001.")
-                    except Exception as e:
-                        st.error(f"وقع مشكل فـ ACE-Step: {e}")
+        if st.button("🎵 توليد الموسيقى (MusicGen)", use_container_width=True, key="btn_musicgen"):
+            with st.spinner("جاري التوليد عبر MusicGen... قد يستغرق بعض الوقت."):
+                try:
+                    from gradio_client import Client
                     
+                    # الاتصال بمساحة MusicGen على Hugging Face
+                    try:
+                        client = Client("facebook/MusicGen", token=st.session_state.hf_api_key if st.session_state.hf_api_key else None)
+                    except Exception:
+                        client = Client("facebook/MusicGen")
+                    
+                    # استدعاء الدالة /predict_batched (هي الأكثر استقراراً)
+                    # نمرر النص فقط، ونخلي melodies فارغة (None) لأننا لا نريد لحناً مرجعياً
+                    result = client.predict(
+                        texts=musicgen_prompt,
+                        melodies=None,
+                        api_name="/predict_batched"
+                    )
+                    
+                    # معالجة النتيجة
+                    audio_data = None
+                    if isinstance(result, str) and os.path.exists(result):
+                        with open(result, "rb") as f:
+                            audio_data = f.read()
+                    elif isinstance(result, tuple) and len(result) > 0:
+                        first_item = result[0]
+                        if isinstance(first_item, str) and os.path.exists(first_item):
+                            with open(first_item, "rb") as f:
+                                audio_data = f.read()
+                    
+                    if audio_data:
+                        st.success("✅ الموسيقى جاهزة (MusicGen)!")
+                        st.audio(audio_data, format="audio/wav")
+                    else:
+                        st.error(f"لم يتم استلام ملف صوتي صالح. النتيجة المستلمة: {result}")
+                        
+                except Exception as e:
+                    st.error(f"وقع مشكل مع MusicGen: {e}")
+    
     else:
         uploaded_music = st.file_uploader("ارفع ملف الموسيقى (MP3/WAV)", type=["mp3", "wav"])
         if uploaded_music is not None:
