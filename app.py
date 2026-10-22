@@ -1,3 +1,9 @@
+import time
+from google.api_core import retry
+
+@retry.Retry(initial=2.0, maximum=60.0, multiplier=2.0, retry_codes=["RESOURCE_EXHAUSTED"])
+def generate_with_retry(model, prompt):
+    return model.generate_content(prompt)
 import streamlit as st
 import base64
 import google.generativeai as genai
