@@ -46,6 +46,58 @@ with tab1:
         st.write("")
         generate_script_btn = st.button("🚀 توليد السيناريو والصوت", use_container_width=True)
 
+    # --- خيارات الصوت (تظهر دائماً) ---
+    st.markdown("---")
+    st.subheader("🎙️ إعدادات الصوت")
+    
+    voice_col1, voice_col2 = st.columns(2)
+    
+    # قائمة الأصوات الـ 30 الرسمية من Google
+    available_voices = {
+        "Zephyr (Bright - Female)": "Zephyr",
+        "Puck (Upbeat - Male)": "Puck",
+        "Charon (Informative - Male)": "Charon",
+        "Kore (Firm - Female)": "Kore",
+        "Fenrir (Excitable - Male)": "Fenrir",
+        "Leda (Youthful - Female)": "Leda",
+        "Orus (Firm - Male)": "Orus",
+        "Aoede (Breezy - Female)": "Aoede",
+        "Callirrhoe (Easy-going - Female)": "Callirrhoe",
+        "Autonoe (Bright - Female)": "Autonoe",
+        "Enceladus (Breathy - Male)": "Enceladus",
+        "Iapetus (Clear - Male)": "Iapetus",
+        "Umbriel (Easy-going - Male)": "Umbriel",
+        "Algieba (Smooth - Male)": "Algieba",
+        "Despina (Smooth - Female)": "Despina",
+        "Erinome (Clear - Female)": "Erinome",
+        "Algenib (Gravelly - Male)": "Algenib",
+        "Rasalgethi (Informative - Male)": "Rasalgethi",
+        "Laomedeia (Upbeat - Female)": "Laomedeia",
+        "Achernar (Soft - Female)": "Achernar",
+        "Alnilam (Firm - Male)": "Alnilam",
+        "Schedar (Even - Male)": "Schedar",
+        "Gacrux (Mature - Female)": "Gacrux",
+        "Pulcherrima (Forward - Female)": "Pulcherrima",
+        "Achird (Friendly - Male)": "Achird",
+        "Zubenelgenubi (Casual - Male)": "Zubenelgenubi",
+        "Vindemiatrix (Gentle - Female)": "Vindemiatrix",
+        "Sadachbia (Lively - Male)": "Sadachbia",
+        "Sadaltager (Knowledgeable - Male)": "Sadaltager",
+        "Sulafat (Warm - Female)": "Sulafat"
+    }
+    
+    with voice_col1:
+        selected_voice_label = st.selectbox("اختار الصوت (Voice):", list(available_voices.keys()))
+        selected_voice = available_voices[selected_voice_label]
+    
+    with voice_col2:
+        # حقل نصي للتحكم في الأسلوب (Style)
+        style_prompt = st.text_input(
+            "التحكم في الأسلوب (Style Prompt):", 
+            placeholder="مثال: هضر بضحك، بنبرة سريعة وحماسية، بحال شي واحد كيهضر مع صحابو",
+            help="كتب هنا كيفاش بغيتي الصوت يهضر. هاد النص كيتزاد مع الحوار باش يتحكم فـ النبرة."
+        )
+
     if generate_script_btn:
         if not gemini_api_key:
             st.error("عافاك دخل Google Gemini API Key فالشريط الجانبي.")
@@ -113,42 +165,49 @@ with tab1:
                                        data=json.dumps(script_data, ensure_ascii=False, indent=4),
                                        file_name="script.json", mime="application/json")
                 
-                # 2. توليد الصوت باستعمال Gemini TTS
-                with st.spinner("جاري توليد الصوت بالدارجة..."):
+                with st.spinner(f"جاري توليد الصوت باستعمال {selected_voice}..."):
                     if full_dialogue.strip():
                         try:
-                            from google import genai
+                            from google import genai as google_genai
                             from google.genai import types
                             
-                            client = genai.Client(api_key=gemini_api_key)
+                            client = google_genai.Client(api_key=gemini_api_key)
                             
-                            # هنا كنحددو الصوت والنبرة
-                            response = client.models.generate_content(
+                            # هنا كنقدرو نستعملو style_prompt إلا كان معمر
+                            # الطريقة الرسمية هي استعمال speech_metadata فـ input
+                            # ولكن باش نبسطو، كنستعملو system_instruction
+                            
+                            style_instruction = style_prompt if style_prompt else "Read the following text naturally and expressively."
+                            
+                            # ملاحظة: فـ Gemini TTS، التحكم فـ الأسلوب كيتم إما عبر system_instruction
+                            # أو عبر speech_metadata فـ input. هنا كنستعملو system_instruction.
+                            
+                            interaction = client.interactions.create(
                                 model="gemini-3.8-flash-tts",
-                                contents=full_dialogue,
-                                config=types.GenerateContentConfig(
-                                    response_modalities=["AUDIO"],
-                                    speech_config=types.SpeechConfig(
-                                        voice_config=types.VoiceConfig(
-                                            prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                                                voice_name="Kore" # تقدر تبدل الصوت هنا
-                                            )
-                                        )
-                                    )
-                                )
+                                input=full_dialogue,
+                                system_instruction=style_instruction,
+                                response_format={"type": "audio"},
+                                generation_config={
+                                    "speech_config": {
+                                        "voice": selected_voice,
+                                        # "language_code": "ar-MA", # اختياري
+                                    }
+                                }
                             )
                             
-                            # نحفظو الصوت فـ ملف
-                            audio_data = response.candidates[0].content.parts[0].inline_data.data
+                            # نحفظو الصوت
+                            audio_data = base64.b64decode(interaction.output_audio.data)
                             with open("voiceover.wav", "wb") as f:
                                 f.write(audio_data)
                             
-                            st.success("✅ الصوت جاهز (حمولو واستعملوه فـ التاب 4)")
+                            st.success(f"✅ الصوت جاهز باستعمال {selected_voice}!")
                             st.audio("voiceover.wav", format="audio/wav")
                             
                         except Exception as e:
                             st.error(f"وقع مشكل فـ توليد الصوت: {e}")
-
+            except Exception as e:
+                st.error(f"وقع شي مشكل: {e}")
+                
 # ==========================================
 # التاب 2: توليد فيديو بالذكاء الاصطناعي (Magic Hour)
 # ==========================================
