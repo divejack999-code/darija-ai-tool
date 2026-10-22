@@ -46,7 +46,6 @@ with tab1:
         st.write("")
         generate_script_btn = st.button("🚀 توليد السيناريو والصوت", use_container_width=True)
 
-    # --- خيارات الصوت (تظهر دائماً) ---
     st.markdown("---")
     st.subheader("🎙️ إعدادات الصوت")
     
@@ -91,7 +90,6 @@ with tab1:
         selected_voice = available_voices[selected_voice_label]
     
     with voice_col2:
-        # حقل نصي للتحكم في الأسلوب (Style)
         style_prompt = st.text_input(
             "التحكم في الأسلوب (Style Prompt):", 
             placeholder="مثال: هضر بضحك، بنبرة سريعة وحماسية، بحال شي واحد كيهضر مع صحابو",
@@ -133,7 +131,6 @@ with tab1:
                     response = model.generate_content(prompt)
                     script_json_text = response.text.strip()
                     
-                    # تنقية النص من علامات الماركداون
                     if script_json_text.startswith("```json"):
                         script_json_text = script_json_text[7:]
                     if script_json_text.endswith("```"):
@@ -160,7 +157,6 @@ with tab1:
                             st.markdown(f"**الحوار:** {scene['dialogue']}")
                             full_dialogue += scene['dialogue'] + " "
                     
-                    # تحميل السيناريو
                     st.download_button("⬇️ تحميل السيناريو (JSON)", 
                                        data=json.dumps(script_data, ensure_ascii=False, indent=4),
                                        file_name="script.json", mime="application/json")
@@ -169,33 +165,31 @@ with tab1:
                     if full_dialogue.strip():
                         try:
                             from google import genai as google_genai
-                            from google.genai import types
                             
                             client = google_genai.Client(api_key=gemini_api_key)
                             
-                            # هنا كنقدرو نستعملو style_prompt إلا كان معمر
-                            # الطريقة الرسمية هي استعمال speech_metadata فـ input
-                            # ولكن باش نبسطو، كنستعملو system_instruction
-                            
-                            style_instruction = style_prompt if style_prompt else "Read the following text naturally and expressively."
-                            
-                            # ملاحظة: فـ Gemini TTS، التحكم فـ الأسلوب كيتم إما عبر system_instruction
-                            # أو عبر speech_metadata فـ input. هنا كنستعملو system_instruction.
+                            # هنا كنستعملو speech_metadata.style باش نتحكمو فـ الأسلوب
+                            style = style_prompt if style_prompt else "Read the following text naturally and expressively."
                             
                             interaction = client.interactions.create(
                                 model="gemini-3.8-flash-tts",
-                                input=full_dialogue,
-                                system_instruction=style_instruction,
+                                input=[{
+                                    "type": "user_input",
+                                    "content": [{
+                                        "type": "text",
+                                        "text": full_dialogue,
+                                        "annotations": [{
+                                            "type": "speech_metadata",
+                                            "style": style
+                                        }]
+                                    }]
+                                }],
                                 response_format={"type": "audio"},
                                 generation_config={
-                                    "speech_config": {
-                                        "voice": selected_voice,
-                                        # "language_code": "ar-MA", # اختياري
-                                    }
+                                    "speech_config": [{"voice": selected_voice}]
                                 }
                             )
                             
-                            # نحفظو الصوت
                             audio_data = base64.b64decode(interaction.output_audio.data)
                             with open("voiceover.wav", "wb") as f:
                                 f.write(audio_data)
