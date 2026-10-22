@@ -33,6 +33,7 @@ def load_persistent_data():
             st.session_state.script_data = data.get("script_data")
             st.session_state.last_custom_script = data.get("last_custom_script", "")
             st.session_state.saved_api_key = data.get("gemini_api_key", "")
+            st.session_state.treblo_api_key = data.get("treblo_api_key", "")
             
             main_audio_path = os.path.join(AUDIO_DIR, "main_voice.wav")
             if os.path.exists(main_audio_path):
@@ -62,6 +63,7 @@ def save_persistent_data():
             "script_data": st.session_state.script_data,
             "last_custom_script": st.session_state.last_custom_script,
             "gemini_api_key": st.session_state.get("gemini_api_key_input", ""),
+            "treblo_api_key": st.session_state.get("treblo_api_key_input", ""),
             "saved_voices_meta": voices_meta
         }
         with open(STATE_FILE, "w", encoding="utf-8") as f:
@@ -85,6 +87,7 @@ if 'script_data' not in st.session_state: st.session_state.script_data = None
 if 'full_audio_bytes' not in st.session_state: st.session_state.full_audio_bytes = None
 if 'last_custom_script' not in st.session_state: st.session_state.last_custom_script = ""
 if 'saved_api_key' not in st.session_state: st.session_state.saved_api_key = ""
+if 'treblo_api_key' not in st.session_state: st.session_state.treblo_api_key = ""
 
 if not st.session_state.get('data_loaded', False):
     load_persistent_data()
@@ -107,6 +110,11 @@ with st.sidebar:
     gemini_api_key = st.text_input("1. Google Gemini API Key (ضروري):", value=st.session_state.saved_api_key, type="password", key="gemini_api_key_input")
     if gemini_api_key != st.session_state.saved_api_key:
         st.session_state.saved_api_key = gemini_api_key
+        save_persistent_data()
+    
+    treblo_api_key = st.text_input("2. Treblo API Key (اختياري - للموسيقى):", value=st.session_state.treblo_api_key, type="password", key="treblo_api_key_input")
+    if treblo_api_key != st.session_state.treblo_api_key:
+        st.session_state.treblo_api_key = treblo_api_key
         save_persistent_data()
     
     st.markdown("---")
@@ -154,7 +162,6 @@ with tab1:
 
     st.markdown("---")
     
-    # الخيار الجديد: واش بغيتي تولد الصوت ولا ترفعو؟
     audio_option = st.radio("🔊 طريقة الحصول على الصوت:", ["توليد الصوت بالذكاء الاصطناعي", "رفع ملف صوتي جاهز (إلغاء التوليد)"], horizontal=True)
 
     selected_voice = None
@@ -203,7 +210,6 @@ with tab1:
             st.error("عافاك دخل Google Gemini API Key.")
         else:
             full_dialogue = ""
-            # 1. جلب/تحليل السيناريو
             try:
                 import google.generativeai as genai
                 with st.spinner("جاري معالجة السيناريو..."):
@@ -237,7 +243,6 @@ with tab1:
             except Exception as e:
                 st.error(f"خطأ: {e}")
 
-            # عرض السيناريو
             if st.session_state.script_data:
                 st.subheader(f"🎬 {st.session_state.script_data.get('title')}")
                 for scene in st.session_state.script_data.get('scenes', []):
@@ -245,7 +250,6 @@ with tab1:
                         st.write(f"**الحوار:** {scene['dialogue']}")
                         full_dialogue += scene['dialogue'] + " "
 
-            # 2. توليد الصوت (غير إلا كان مختار التوليد)
             if audio_option == "توليد الصوت بالذكاء الاصطناعي" and full_dialogue.strip():
                 with st.spinner("جاري توليد الصوت..."):
                     try:
@@ -285,7 +289,7 @@ with tab2:
     st.info("هاد الخيار كيحتاج Magic Hour API Key.")
 
 # ==========================================
-# التاب 3: التوليد الأوتوماتيكي (مع خيار رفع الصور)
+# التاب 3: التوليد الأوتوماتيكي
 # ==========================================
 with tab3:
     st.header("🎬 التوليد الأوتوماتيكي للفيديو")
@@ -311,7 +315,6 @@ with tab3:
         
         if st.button("🚀 بدء التوليد الأوتوماتيكي", use_container_width=True):
             with st.spinner("جاري التوليد..."):
-                # محاكاة للتوليد
                 time.sleep(2)
                 st.success("✅ الفيديو جاهز! (تم استخدام المصدر المختار).")
 
@@ -331,19 +334,25 @@ with tab4:
             st.success("✅ تم التجميع بنجاح!")
 
 # ==========================================
-# التاب 5: الموسيقى (توليد أو رفع)
+# التاب 5: الموسيقى (توليد أو رفع) - مع خيارات Treblo و ACE-Step
 # ==========================================
 with tab5:
     st.header("🎵 الموسيقى")
     
-    music_option = st.radio("🎼 طريقة الحصول على الموسيقى:", ["توليد موسيقى بالذكاء الاصطناعي", "رفع ملف موسيقى جاهز (إلغاء التوليد)"], horizontal=True)
+    music_option = st.radio("🎼 طريقة الحصول على الموسيقى:", [
+        "توليد موسيقى بالذكاء الاصطناعي (Google Lyria)", 
+        "توليد موسيقى باستعمال Treblo API", 
+        "توليد موسيقى باستعمال ACE-Step (محلي)", 
+        "رفع ملف موسيقى جاهز (إلغاء التوليد)"
+    ], horizontal=False)
     
-    if music_option == "توليد موسيقى بالذكاء الاصطناعي":
+    if music_option == "توليد موسيقى بالذكاء الاصطناعي (Google Lyria)":
+        st.info("ملاحظة: خدمة Lyria 3 قد تكون مقطوعة مؤقتاً (Error 429). استعمل الخيارات الأخرى.")
         if not gemini_api_key:
             st.warning("⚠️ عافاك دخل Google Gemini API Key.")
         else:
             music_prompt = st.text_area("وصف الموسيقى:", height=100, placeholder="مثال: موسيقى هادئة...")
-            if st.button("🎵 توليد الموسيقى", use_container_width=True):
+            if st.button("🎵 توليد الموسيقى (Lyria)", use_container_width=True):
                 with st.spinner("جاري التوليد..."):
                     try:
                         from google import genai as google_genai
@@ -357,6 +366,90 @@ with tab5:
                             st.error("⚠️ ما رجعش صوت.")
                     except Exception as e:
                         st.error(f"وقع مشكل (الكوطا ممكن تكون كملات): {e}")
+    
+    elif music_option == "توليد موسيقى باستعمال Treblo API":
+        st.subheader("🎼 توليد الموسيقى بـ Treblo")
+        
+        # --- إعدادات Treblo API (v2 أو v3) ---
+        TREBLO_API_V2 = "https://api.treblo.com/v1/generations/v2"
+        TREBLO_API_V3 = "https://api.treblo.com/v1/generations/v3"
+        
+        treblo_version = st.selectbox("اختر إصدار Treblo API:", ["v3 (موصى به)", "v2"], index=0)
+        selected_treblo_url = TREBLO_API_V3 if "v3" in treblo_version else TREBLO_API_V2
+        
+        if not st.session_state.treblo_api_key:
+            st.warning("⚠️ عافاك دخل Treblo API Key فالشريط الجانبي.")
+        else:
+            treblo_prompt = st.text_area("وصف الموسيقى (Treblo):", height=100, placeholder="مثال: a chill lofi beat for studying")
+            if st.button("🎵 توليد الموسيقى (Treblo)", use_container_width=True):
+                with st.spinner(f"جاري التوليد عبر Treblo ({treblo_version})... قد يستغرق دقيقة."):
+                    try:
+                        headers = {
+                            "Authorization": f"Bearer {st.session_state.treblo_api_key}",
+                            "Content-Type": "application/json"
+                        }
+                        payload = {"prompt": treblo_prompt}
+                        
+                        # 1. إرسال الطلب
+                        res = requests.post(selected_treblo_url, headers=headers, json=payload)
+                        res.raise_for_status()
+                        task_id = res.json().get("task_id")
+                        
+                        if not task_id:
+                            st.error("لم يتم استلام task_id من Treblo.")
+                        else:
+                            # 2. الاستعلام عن الحالة
+                            status_url = f"https://api.treblo.com/v1/generations/status/{task_id}"
+                            while True:
+                                status_res = requests.get(status_url, headers=headers)
+                                status_data = status_res.json()
+                                status = status_data.get("status")
+                                
+                                if status == "SUCCESS":
+                                    break
+                                elif status == "FAILURE":
+                                    st.error("فشل التوليد في Treblo.")
+                                    break
+                                time.sleep(5)
+                            
+                            # 3. جلب النتيجة
+                            if status == "SUCCESS":
+                                result_res = requests.get(f"https://api.treblo.com/v1/generations/{task_id}", headers=headers)
+                                song_paths = result_res.json().get("song_paths", [])
+                                if song_paths:
+                                    audio_url = song_paths[0]
+                                    st.success("✅ الموسيقى جاهزة (Treblo)!")
+                                    st.audio(audio_url, format="audio/mp3")
+                                else:
+                                    st.error("لم يتم العثور على رابط الصوت.")
+                    except Exception as e:
+                        st.error(f"وقع مشكل فـ Treblo: {e}")
+
+    elif music_option == "توليد موسيقى باستعمال ACE-Step (محلي)":
+        st.subheader("🎼 توليد الموسيقى بـ ACE-Step (محلي)")
+        st.info("💡 هاد الخيار كيحتاج تشغيل نموذج ACE-Step 1.5 محلياً. تأكد من تشغيل الـ Gradio API على المنفذ 8001.")
+        ace_step_prompt = st.text_area("وصف الموسيقى (ACE-Step):", height=100, placeholder="مثال: a happy summer pop song")
+        
+        if st.button("🎵 توليد الموسيقى (ACE-Step)", use_container_width=True):
+            with st.spinner("جاري التوليد عبر ACE-Step المحلي..."):
+                try:
+                    ace_api_url = "http://localhost:8001/api/generate"
+                    payload = {"prompt": ace_step_prompt, "duration": 30}
+                    res = requests.post(ace_api_url, json=payload)
+                    res.raise_for_status()
+                    result = res.json()
+                    audio_url = result.get("audio_url") or result.get("audio_path")
+                    
+                    if audio_url:
+                        st.success("✅ الموسيقى جاهزة (ACE-Step)!")
+                        st.audio(audio_url, format="audio/wav")
+                    else:
+                        st.error("لم يتم العثور على رابط الصوت في استجابة ACE-Step.")
+                except requests.exceptions.ConnectionError:
+                    st.error("تعذر الاتصال بـ ACE-Step. تأكد من تشغيل النموذج محلياً على المنفذ 8001.")
+                except Exception as e:
+                    st.error(f"وقع مشكل فـ ACE-Step: {e}")
+                    
     else:
         uploaded_music = st.file_uploader("ارفع ملف الموسيقى (MP3/WAV)", type=["mp3", "wav"])
         if uploaded_music is not None:
