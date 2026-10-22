@@ -17,7 +17,7 @@ from docx import Document
 st.set_page_config(page_title="AI Studio: Darija & Amazigh", page_icon="🎬", layout="wide")
 st.title("🎬 استوديو الذكاء الاصطناعي الشامل")
 
-# --- إعدادات الحفظ الدائم ---
+# --- إعدادات الحفظ الدائم (Persistent Storage) ---
 DATA_DIR = "persistent_data"
 AUDIO_DIR = os.path.join(DATA_DIR, "audios")
 STATE_FILE = os.path.join(DATA_DIR, "state.json")
@@ -414,11 +414,9 @@ with tab5:
                         except Exception:
                             client = Client("ACE-Step/Ace-Step-v1.5")
                         
-                        # --- الآلية الذكية: قراءة البارامترات المطلوبة أوتوماتيكياً ---
+                        # --- جلب واجهة الـ API والبحث عن خيار النموذج ---
                         api_info = client.view_api(return_format="dict")
                         endpoints = api_info.get("named_endpoints", {})
-                        
-                        # الدالة اللي كنا كنستعملو
                         endpoint_to_use = "/generation_wrapper"
                         
                         if endpoint_to_use in endpoints:
@@ -428,16 +426,21 @@ with tab5:
                             for param in params_info:
                                 p_name = param.get("parameter_name")
                                 p_type = param.get("type", {})
+                                p_type_str = str(p_type).lower()
                                 
-                                # كنحطو الوصف ديالنا فـ خانة الوصف
-                                if p_name in ["captions", "caption", "prompt", "text"]:
+                                # تصحيح خيار النموذج الإجباري
+                                if "model" in p_name.lower() or "checkpoint" in p_name.lower() or "config" in p_name.lower():
+                                    kwargs[p_name] = "acestep-v15-turbo"
+                                # خانات النصوص
+                                elif p_name in ["captions", "caption", "prompt", "text"]:
                                     kwargs[p_name] = ace_step_prompt
-                                # كنعمرو باقي الخانات بقيم فارغة باش ما يطعش خطأ
-                                elif "string" in str(p_type).lower() or p_type.get("type") == "string":
+                                elif "string" in p_type_str or p_type.get("type") == "string":
                                     kwargs[p_name] = ""
-                                elif "number" in str(p_type).lower() or p_type.get("type") == "number":
-                                    kwargs[p_name] = 0
-                                elif "boolean" in str(p_type).lower() or p_type.get("type") == "boolean":
+                                # الخانات الرقمية
+                                elif "number" in p_type_str or p_type.get("type") == "number":
+                                    kwargs[p_name] = 0.0
+                                # خانات الاختيار (Boolean)
+                                elif "boolean" in p_type_str or p_type.get("type") == "boolean":
                                     kwargs[p_name] = False
                                 else:
                                     kwargs[p_name] = None
