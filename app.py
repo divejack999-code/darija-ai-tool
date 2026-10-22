@@ -55,7 +55,7 @@ with tab1:
             try:
                 with st.spinner("جاري كتابة السيناريو..."):
                     genai.configure(api_key=gemini_api_key)
-                    model = genai.GenerativeModel('gemini-2.0-flash')
+                    model = genai.GenerativeModel('gemini-3.8-flash')
                     
                     prompt = f"""
                     أنت كاتب سيناريوهات ومخرج محترف. كتب سيناريو فيديو باللهجة {language}.
