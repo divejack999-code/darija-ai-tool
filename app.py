@@ -406,7 +406,7 @@ with tab5:
                     try:
                         from gradio_client import Client
                         
-                        # الاتصال بالمساحة مع معالجة خطأ الوسيط token/hf_token
+                        # الاتصال بالمساحة
                         try:
                             client = Client("ACE-Step/ACE-Step-v1.5", token=st.session_state.hf_api_key)
                         except TypeError:
@@ -414,17 +414,45 @@ with tab5:
                         except Exception:
                             client = Client("ACE-Step/ACE-Step-v1.5")
                         
-                        # استخدام اسم الدالة الصحيح /text2music
-                        api_name_to_use = "/text2music"
-                        st.info(f"جاري استخدام الدالة: {api_name_to_use}")
+                        # --- البحث التلقائي عن الدالة الصحيحة ---
+                        api_name_to_use = None
+                        available_endpoints = []
                         
+                        try:
+                            api_info = client.view_api(return_format="dict")
+                            named_endpoints = api_info.get("named_endpoints", {})
+                            available_endpoints = list(named_endpoints.keys())
+                            
+                            # البحث عن endpoint يحتوي على "music" أو "generate" أو "text2music" أو "call"
+                            for endpoint_name in available_endpoints:
+                                lower_name = endpoint_name.lower()
+                                if any(keyword in lower_name for keyword in ["music", "generate", "text2music", "call"]):
+                                    api_name_to_use = endpoint_name
+                                    break
+                            
+                            # إذا لم نجد أي تطابق، نستخدم أول endpoint متاح
+                            if not api_name_to_use and available_endpoints:
+                                api_name_to_use = available_endpoints[0]
+                                
+                        except Exception as e:
+                            st.warning(f"لم نتمكن من جلب قائمة الدوال تلقائياً: {e}")
+                        
+                        # إذا لم نجد أي endpoint، نستخدم /__call__ كخيار أخير
+                        if not api_name_to_use:
+                            api_name_to_use = "/__call__"
+                        
+                        st.info(f"جاري استخدام الدالة: {api_name_to_use}")
+                        if available_endpoints:
+                            st.info(f"الدوال المتاحة في المساحة: {', '.join(available_endpoints)}")
+                        
+                        # --- استدعاء الدالة ---
                         result = client.predict(
                             caption=ace_step_prompt,
                             duration=30,
                             api_name=api_name_to_use
                         )
                         
-                        # معالجة النتيجة
+                        # --- معالجة النتيجة ---
                         audio_data = None
                         if isinstance(result, str) and os.path.exists(result):
                             with open(result, "rb") as f:
@@ -433,6 +461,12 @@ with tab5:
                             audio_path = result["audio"]
                             if isinstance(audio_path, str) and os.path.exists(audio_path):
                                 with open(audio_path, "rb") as f:
+                                    audio_data = f.read()
+                        elif isinstance(result, tuple) and len(result) > 0:
+                            # قد ترجع النتيجة كـ tuple
+                            first_item = result[0]
+                            if isinstance(first_item, str) and os.path.exists(first_item):
+                                with open(first_item, "rb") as f:
                                     audio_data = f.read()
                         
                         if audio_data:
