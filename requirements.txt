@@ -6,3 +6,4 @@ magic-hour
 Pillow
 numpy
 requests
+python-docx
