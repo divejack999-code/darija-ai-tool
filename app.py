@@ -17,7 +17,7 @@ from docx import Document
 st.set_page_config(page_title="AI Studio: Darija & Amazigh", page_icon="🎬", layout="wide")
 st.title("🎬 استوديو الذكاء الاصطناعي الشامل")
 
-# --- إعدادات الحفظ الدائم (Persistent Storage) ---
+# --- إعدادات الحفظ الدائم ---
 DATA_DIR = "persistent_data"
 AUDIO_DIR = os.path.join(DATA_DIR, "audios")
 STATE_FILE = os.path.join(DATA_DIR, "state.json")
@@ -405,6 +405,7 @@ with tab5:
                 with st.spinner("جاري التوليد عبر Hugging Face... قد يستغرق بعض الوقت."):
                     try:
                         from gradio_client import Client
+                        import ast
                         
                         # الاتصال بالمساحة
                         try:
@@ -428,45 +429,37 @@ with tab5:
                                 p_type = param.get("type", {})
                                 p_type_str = str(p_type).lower()
                                 
-                                # 1. تصحيح خيار نوع المهمة (Task Type / Mode) الإجباري
-                                if "task_type" in p_name.lower() or "mode" in p_name.lower() or "literal" in p_type_str or "enum" in p_type_str:
-                                    if "task_type" in p_name.lower() or "mode" in p_name.lower():
-                                        kwargs[p_name] = "simple" # القيمة الافتراضية الصحيحة
-                                    else:
+                                # 1. الخانات اللي فيها قائمة اختيارات (Choices)
+                                if "literal" in p_type_str or "enum" in p_type_str or "choices" in p_type_str:
+                                    choices = []
+                                    # محاولة استخراج القائمة من النص (مثلاً: Literal['a', 'b'])
+                                    match = re.search(r"\[(.*?)\]", str(p_type))
+                                    if match:
                                         try:
-                                            # محاولة استخراج الخيارات
-                                            if isinstance(p_type, str):
-                                                match = re.search(r'\[(.*?)\]', p_type)
-                                                if match:
-                                                    import ast
-                                                    choices = ast.literal_eval(f"[{match.group(1)}]")
-                                                    kwargs[p_name] = choices[0]
-                                                else:
-                                                    kwargs[p_name] = "simple"
-                                            elif isinstance(p_type, dict) and "enum" in p_type:
-                                                kwargs[p_name] = p_type["enum"][0]
-                                            else:
-                                                kwargs[p_name] = "simple"
+                                            choices = ast.literal_eval(f"[{match.group(1)}]")
                                         except:
-                                            kwargs[p_name] = "simple"
+                                            pass
+                                    
+                                    if choices and isinstance(choices, list) and len(choices) > 0:
+                                        # كنختارو القيمة الأولى من القائمة (بحال 'acestep-v15-turbo')
+                                        kwargs[p_name] = choices[0]
+                                    else:
+                                        # إلا ما لقيناش القائمة، كنحطو شي قيمة افتراضية
+                                        kwargs[p_name] = "acestep-v15-turbo" if "model" in p_name.lower() or "mode" in p_name.lower() else ""
                                 
-                                # 2. تصحيح خيار النموذج
-                                elif "model" in p_name.lower() or "checkpoint" in p_name.lower() or "config" in p_name.lower():
-                                    kwargs[p_name] = "acestep-v15-turbo"
-                                
-                                # 3. خانة النص (الوصف)
+                                # 2. خانة النص (الوصف)
                                 elif p_name in ["captions", "caption", "prompt", "text"]:
                                     kwargs[p_name] = ace_step_prompt
                                 
-                                # 4. خانات النصوص العادية
+                                # 3. خانات النصوص العادية
                                 elif "string" in p_type_str or (isinstance(p_type, dict) and p_type.get("type") == "string"):
                                     kwargs[p_name] = ""
                                 
-                                # 5. خانات الأرقام
+                                # 4. خانات الأرقام
                                 elif "number" in p_type_str or (isinstance(p_type, dict) and p_type.get("type") == "number"):
                                     kwargs[p_name] = 0.0
                                 
-                                # 6. خانات الاختيار (Boolean)
+                                # 5. خانات الاختيار (Boolean)
                                 elif "boolean" in p_type_str or (isinstance(p_type, dict) and p_type.get("type") == "boolean"):
                                     kwargs[p_name] = False
                                 
