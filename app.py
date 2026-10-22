@@ -78,7 +78,6 @@ def fetch_pixabay_videos(query, api_key, per_page=1):
     except Exception:
         return None
 
-# --- دالة جديدة لجلب الفيديوهات من Coverr ---
 def fetch_coverr_videos(query, per_page=1):
     url = "https://api.coverr.co/videos"
     params = {"query": query, "page_size": per_page}
@@ -88,9 +87,7 @@ def fetch_coverr_videos(query, per_page=1):
         data = response.json()
         hits = data.get('hits', [])
         if hits:
-            # Coverr كتوفر بزاف ديال الروابط، كنقلبو على أفضل جودة متاحة
             video_urls = hits[0].get('urls', {})
-            # كنفضلو mp4_download ولا mp4_1080
             best_url = video_urls.get('mp4_download') or video_urls.get('mp4_1080') or video_urls.get('mp4_720')
             return best_url
     except Exception as e:
@@ -126,7 +123,7 @@ with st.sidebar:
     st.subheader("🛡️ إعدادات الحماية")
     selected_model_name = st.selectbox(
         "اختار نموذج الذكاء الاصطناعي:",
-        ["gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-2.5-flash"]
+        ["gemini-3.5-flash", "gemini-3.8-flash", "gemini-2.5-flash"]
     )
     max_retries = st.number_input("عدد المحاولات فحالة وقع خطأ:", min_value=1, max_value=10, value=3)
 
@@ -283,7 +280,7 @@ with tab1:
                         """
                         
                         response = client.models.generate_content(
-                            model="gemini-2.0-flash", 
+                            model="gemini-3.5-flash",  # <-- هنا التعديل
                             contents=tts_instruction,
                             config=types.GenerateContentConfig(
                                 response_modalities=["AUDIO"],
@@ -382,9 +379,7 @@ with tab3:
                             st.write(f"🔍 كنقلب على مشهد {i+1}: '{keyword}'...")
                             
                             video_url = None
-                            # 1. نقلب فـ Coverr الأول (جودة عالية وبدون مفتاح)
                             video_url = fetch_coverr_videos(keyword)
-                            # 2. إلا ما لقاش، نقلب فـ Pixabay (بالمفتاح ديالك)
                             if not video_url and pixabay_api_key:
                                 video_url = fetch_pixabay_videos(keyword, pixabay_api_key)
                             
