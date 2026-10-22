@@ -414,25 +414,10 @@ with tab5:
                         except Exception:
                             client = Client("ACE-Step/ACE-Step-v1.5")
                         
-                        # اكتشاف اسم الدالة الصحيح تلقائياً
-                        api_name_to_use = None
-                        try:
-                            api_info = client.view_api(return_format="dict")
-                            named_endpoints = api_info.get("named_endpoints", {})
-                            
-                            for endpoint_name in named_endpoints.keys():
-                                if "generate" in endpoint_name.lower() or "music" in endpoint_name.lower() or "__call__" in endpoint_name:
-                                    api_name_to_use = endpoint_name
-                                    break
-                        except Exception:
-                            pass
-                        
-                        if not api_name_to_use:
-                            api_name_to_use = "/__call__"
-                        
+                        # استخدام اسم الدالة الصحيح /text2music
+                        api_name_to_use = "/text2music"
                         st.info(f"جاري استخدام الدالة: {api_name_to_use}")
                         
-                        # استدعاء الدالة
                         result = client.predict(
                             caption=ace_step_prompt,
                             duration=30,
