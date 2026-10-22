@@ -6,12 +6,52 @@ import os
 import time
 import tempfile
 import numpy as np
+import io
 from PIL import Image
 from moviepy import ImageClip, AudioFileClip, concatenate_videoclips, VideoFileClip, CompositeVideoClip
+from docx import Document
 
 # --- إعدادات الواجهة ---
 st.set_page_config(page_title="AI Studio: Darija & Amazigh", page_icon="🎬", layout="wide")
 st.title("🎬 استوديو الذكاء الاصطناعي الشامل")
+
+# --- دوال مساعدة للتحميل ---
+def script_to_text(script_data):
+    text = f"العنوان: {script_data.get('title', '')}\n\n"
+    text += "الشخصيات:\n"
+    for c in script_data.get('characters', []):
+        text += f"- {c.get('name')}: {c.get('description')}\n"
+    text += "\nالمواقع:\n"
+    for l in script_data.get('locations', []):
+        text += f"- {l.get('name')}: {l.get('description')}\n"
+    text += "\nالمشاهد:\n"
+    for s in script_data.get('scenes', []):
+        text += f"مشهد {s.get('scene_number')} - {s.get('location')}:\n"
+        text += f"  الوصف البصري: {s.get('visual_description')}\n"
+        text += f"  الحوار: {s.get('dialogue')}\n\n"
+    return text
+
+def create_docx(script_data):
+    doc = Document()
+    doc.add_heading(script_data.get('title', 'السيناريو'), 0)
+    
+    doc.add_heading('الشخصيات', level=1)
+    for c in script_data.get('characters', []):
+        doc.add_paragraph(f"{c.get('name')}: {c.get('description')}", style='List Bullet')
+        
+    doc.add_heading('المواقع', level=1)
+    for l in script_data.get('locations', []):
+        doc.add_paragraph(f"{l.get('name')}: {l.get('description')}", style='List Bullet')
+        
+    doc.add_heading('المشاهد', level=1)
+    for s in script_data.get('scenes', []):
+        doc.add_heading(f"مشهد {s.get('scene_number')} - {s.get('location')}", level=2)
+        doc.add_paragraph(f"الوصف البصري: {s.get('visual_description')}")
+        doc.add_paragraph(f"الحوار: {s.get('dialogue')}")
+    
+    bio = io.BytesIO()
+    doc.save(bio)
+    return bio.getvalue()
 
 # --- الشريط الجانبي (الإعدادات) ---
 with st.sidebar:
@@ -25,12 +65,10 @@ with st.sidebar:
     
     st.markdown("---")
     st.subheader("🛡️ إعدادات الحماية")
-    # قائمة النماذج باش تتفادى الأخطاء
     selected_model_name = st.selectbox(
         "اختار نموذج الذكاء الاصطناعي:",
         ["gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-2.5-flash"]
     )
-    # عدد المحاولات
     max_retries = st.number_input("عدد المحاولات فحالة وقع خطأ (Retries):", min_value=1, max_value=10, value=3)
 
 # --- تقسيم الواجهة لـ 4 تابات ---
@@ -47,7 +85,6 @@ tab1, tab2, tab3, tab4 = st.tabs([
 with tab1:
     st.header("توليد السيناريو المفصل والتعليق الصوتي")
     
-    # --- خيار طريقة العمل ---
     work_mode = st.radio(
         "كيفاش بغيتي تخدم؟",
         ["توليد سيناريو جديد بالذكاء الاصطناعي", "لدي سيناريو جاهز (توليد الصوت فقط)"],
@@ -56,12 +93,9 @@ with tab1:
     
     st.markdown("---")
     
-    # --- الواجهة ديال السيناريو الجديد ---
     if work_mode == "توليد سيناريو جديد بالذكاء الاصطناعي":
         topic = st.text_area("فكرة الفيديو:", height=150, placeholder="مثال: قصة شاب بغا يدير رجيم...")
         generate_btn = st.button("🚀 توليد السيناريو والصوت", use_container_width=True)
-    
-    # --- الواجهة ديال السيناريو الجاهز ---
     else:
         topic = ""
         custom_script = st.text_area(
@@ -104,14 +138,12 @@ with tab1:
             placeholder="مثال: هضر بضحك، بنبرة سريعة وحماسية...",
         )
 
-    # --- لوجيك التنفيذ ---
     if generate_btn:
         if not gemini_api_key:
             st.error("عافاك دخل Google Gemini API Key فالشريط الجانبي.")
         else:
             full_dialogue = ""
             
-            # 1. حالة توليد سيناريو جديد
             if work_mode == "توليد سيناريو جديد بالذكاء الاصطناعي":
                 if not topic:
                     st.warning("عافاك كتب شي فكرة.")
@@ -143,16 +175,15 @@ with tab1:
                             }}
                             """
                             
-                            # --- لوجيك المحاولات (Retries) ---
                             response = None
                             for attempt in range(max_retries):
                                 try:
                                     response = model.generate_content(prompt)
-                                    break # إلا نجح، خرج من الحلقة
+                                    break
                                 except Exception as e:
                                     if attempt < max_retries - 1:
                                         st.warning(f"محاولة {attempt + 1} فشلت. كنعاودو المحاولة...")
-                                        time.sleep(2) # نسنى جوج ثواني قبل ما نعاود
+                                        time.sleep(2)
                                     else:
                                         st.error(f"فشلت جميع المحاولات ({max_retries}). الخطأ: {e}")
                                         response = None
@@ -184,23 +215,37 @@ with tab1:
                                         st.markdown(f"**الحوار:** {scene['dialogue']}")
                                         full_dialogue += scene['dialogue'] + " "
                                 
-                                st.download_button("⬇️ تحميل السيناريو (JSON)", 
-                                                   data=json.dumps(script_data, ensure_ascii=False, indent=4),
-                                                   file_name="script.json", mime="application/json")
+                                # --- أزرار التحميل (JSON, TXT, Word) ---
+                                st.markdown("### ⬇️ تحميل السيناريو")
+                                col_dl1, col_dl2, col_dl3 = st.columns(3)
+                                
+                                with col_dl1:
+                                    st.download_button("تحميل (JSON)", 
+                                                       data=json.dumps(script_data, ensure_ascii=False, indent=4),
+                                                       file_name="script.json", mime="application/json",
+                                                       use_container_width=True)
+                                with col_dl2:
+                                    st.download_button("تحميل (TXT)", 
+                                                       data=script_to_text(script_data).encode('utf-8'),
+                                                       file_name="script.txt", mime="text/plain",
+                                                       use_container_width=True)
+                                with col_dl3:
+                                    st.download_button("تحميل (Word)", 
+                                                       data=create_docx(script_data),
+                                                       file_name="script.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                                       use_container_width=True)
+                                
                     except Exception as e:
                         st.error(f"وقع شي مشكل فـ السيناريو: {e}")
             
-            # 2. حالة السيناريو الجاهز
             else:
                 if not custom_script:
                     st.warning("عافاك لصق السيناريو ديالك.")
                 else:
                     full_dialogue = custom_script
 
-            # 3. توليد الصوت (كيتخدم فالحالتين)
             if full_dialogue.strip():
                 with st.spinner(f"جاري توليد الصوت باستعمال {selected_voice}..."):
-                    # قاموس النطق المغربي
                     darija_phonetics = {
                         "القهوة": "لْقَهْوَة", "المسمن": "لْمَسْمَنْ", "الفريجيدير": "لْفْرِيجِيدِير",
                         "الحلاق": "لْحَلَّاق", "الكيك": "لْكِيك", "ديال": "دْيَال", "واش": "وَاشْ"
@@ -214,7 +259,6 @@ with tab1:
                         
                         client = google_genai.Client(api_key=gemini_api_key)
                         
-                        # تعليمات الأقواس
                         tts_instruction = f"""
                         أنت ممثل صوتي محترف. اقرأ النص التالي بصوت طبيعي.
                         تحذير مهم: أي كلام بين قوسين ( ) أو [ ] هو تعليمات إخراجية للتمثيل فقط (بحال: كيهضر مع راسو، يضحك). 
@@ -224,7 +268,6 @@ with tab1:
                         {full_dialogue}
                         """
                         
-                        # توليد الصوت (هادا النموذج ديال الصوت ثابت ومستقر)
                         response = client.models.generate_content(
                             model="gemini-2.0-flash", 
                             contents=tts_instruction,
