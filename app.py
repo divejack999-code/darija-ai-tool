@@ -113,19 +113,41 @@ with tab1:
                                        data=json.dumps(script_data, ensure_ascii=False, indent=4),
                                        file_name="script.json", mime="application/json")
                 
-                with st.spinner("جاري توليد الصوت..."):
+                # 2. توليد الصوت باستعمال Gemini TTS
+                with st.spinner("جاري توليد الصوت بالدارجة..."):
                     if full_dialogue.strip():
-                        voice = "ar-MA-JamalNeural" if language == "الدارجة المغربية" else "ar-SA-HamedNeural"
-                        
-                        async def generate_audio():
-                            communicate = edge_tts.Communicate(full_dialogue, voice)
-                            await communicate.save("voiceover.mp3")
-                        asyncio.run(generate_audio())
-                        
-                        st.success("✅ الصوت جاهز (حمولو واستعملوه فـ التاب 4)")
-                        st.audio("voiceover.mp3", format="audio/mp3")
-            except Exception as e:
-                st.error(f"وقع شي مشكل: {e}")
+                        try:
+                            from google import genai
+                            from google.genai import types
+                            
+                            client = genai.Client(api_key=gemini_api_key)
+                            
+                            # هنا كنحددو الصوت والنبرة
+                            response = client.models.generate_content(
+                                model="gemini-3.8-flash-tts",
+                                contents=full_dialogue,
+                                config=types.GenerateContentConfig(
+                                    response_modalities=["AUDIO"],
+                                    speech_config=types.SpeechConfig(
+                                        voice_config=types.VoiceConfig(
+                                            prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                                                voice_name="Kore" # تقدر تبدل الصوت هنا
+                                            )
+                                        )
+                                    )
+                                )
+                            )
+                            
+                            # نحفظو الصوت فـ ملف
+                            audio_data = response.candidates[0].content.parts[0].inline_data.data
+                            with open("voiceover.wav", "wb") as f:
+                                f.write(audio_data)
+                            
+                            st.success("✅ الصوت جاهز (حمولو واستعملوه فـ التاب 4)")
+                            st.audio("voiceover.wav", format="audio/wav")
+                            
+                        except Exception as e:
+                            st.error(f"وقع مشكل فـ توليد الصوت: {e}")
 
 # ==========================================
 # التاب 2: توليد فيديو بالذكاء الاصطناعي (Magic Hour)
