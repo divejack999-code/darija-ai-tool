@@ -1,8 +1,6 @@
 import streamlit as st
 import base64
 import re
-import google.generativeai as genai
-import asyncio
 import json
 import os
 import time
@@ -39,13 +37,29 @@ tab1, tab2, tab3, tab4 = st.tabs([
 with tab1:
     st.header("توليد السيناريو المفصل والتعليق الصوتي")
     
-    col1, col2 = st.columns([2, 1])
-    with col1:
+    # --- خيار طريقة العمل ---
+    work_mode = st.radio(
+        "كيفاش بغيتي تخدم؟",
+        ["توليد سيناريو جديد بالذكاء الاصطناعي", "لدي سيناريو جاهز (توليد الصوت فقط)"],
+        horizontal=True
+    )
+    
+    st.markdown("---")
+    
+    # --- الواجهة ديال السيناريو الجديد ---
+    if work_mode == "توليد سيناريو جديد بالذكاء الاصطناعي":
         topic = st.text_area("فكرة الفيديو:", height=150, placeholder="مثال: قصة شاب بغا يدير رجيم...")
-    with col2:
-        st.write("")
-        st.write("")
-        generate_script_btn = st.button("🚀 توليد السيناريو والصوت", use_container_width=True)
+        generate_btn = st.button("🚀 توليد السيناريو والصوت", use_container_width=True)
+    
+    # --- الواجهة ديال السيناريو الجاهز ---
+    else:
+        topic = ""
+        custom_script = st.text_area(
+            "لصق السيناريو ديالك هنا (الحوار أو التعليق الصوتي فقط):", 
+            height=250, 
+            placeholder="مثال:\n(أمين كيهضر مع راسو) علاش أنا هكا؟ غادي نبدا الرجيم...\n(يضحك) والله غير غادي ناكل هاد الكيك كامل!"
+        )
+        generate_btn = st.button("🎙️ توليد الصوت من السيناريو", use_container_width=True)
 
     st.markdown("---")
     st.subheader("🎙️ إعدادات الصوت")
@@ -80,126 +94,138 @@ with tab1:
             placeholder="مثال: هضر بضحك، بنبرة سريعة وحماسية...",
         )
 
-    if generate_script_btn:
+    # --- لوجيك التنفيذ ---
+    if generate_btn:
         if not gemini_api_key:
             st.error("عافاك دخل Google Gemini API Key فالشريط الجانبي.")
-        elif not topic:
-            st.warning("عافاك كتب شي فكرة.")
         else:
-            try:
-                with st.spinner("جاري كتابة السيناريو..."):
-                    genai.configure(api_key=gemini_api_key)
-                    # استعملنا النموذج المستقر
-                    model = genai.GenerativeModel('gemini-1.5-flash')
-                    
-                    prompt = f"""
-                    أنت كاتب سيناريوهات ومخرج محترف. كتب سيناريو فيديو باللهجة {language}.
-                    الموضوع: {topic}
-                    الستايل: {tone}
-                    
-                    خاصك ترجع الجواب على شكل JSON فقط، بلا أي كلام آخر:
-                    {{
-                        "title": "عنوان الفيديو",
-                        "characters": [{{"name": "اسم", "description": "وصف"}}],
-                        "locations": [{{"name": "مكان", "description": "وصف"}}],
-                        "scenes": [
+            full_dialogue = ""
+            
+            # 1. حالة توليد سيناريو جديد
+            if work_mode == "توليد سيناريو جديد بالذكاء الاصطناعي":
+                if not topic:
+                    st.warning("عافاك كتب شي فكرة.")
+                else:
+                    try:
+                        import google.generativeai as genai
+                        with st.spinner("جاري كتابة السيناريو..."):
+                            genai.configure(api_key=gemini_api_key)
+                            model = genai.GenerativeModel('gemini-1.5-flash') # نموذج مستقر
+                            
+                            prompt = f"""
+                            أنت كاتب سيناريوهات ومخرج محترف. كتب سيناريو فيديو باللهجة {language}.
+                            الموضوع: {topic}
+                            الستايل: {tone}
+                            
+                            خاصك ترجع الجواب على شكل JSON فقط، بلا أي كلام آخر:
                             {{
-                                "scene_number": 1,
-                                "location": "المكان",
-                                "visual_description": "وصف المشهد",
-                                "dialogue": "الحوار الصوتي. وإلا كان كاين شي إحساس (بحال الضحك ولا كيهضر مع راسو) حطو بين قوسين بحال هكا: (كيهضر مع راسو) وكتب الكلام من بعدو."
+                                "title": "عنوان الفيديو",
+                                "characters": [{{"name": "اسم", "description": "وصف"}}],
+                                "locations": [{{"name": "مكان", "description": "وصف"}}],
+                                "scenes": [
+                                    {{
+                                        "scene_number": 1,
+                                        "location": "المكان",
+                                        "visual_description": "وصف المشهد",
+                                        "dialogue": "الحوار الصوتي. وإلا كان كاين شي إحساس (بحال الضحك ولا كيهضر مع راسو) حطو بين قوسين بحال هكا: (كيهضر مع راسو) وكتب الكلام من بعدو."
+                                    }}
+                                ]
                             }}
-                        ]
-                    }}
-                    """
-                    
-                    response = model.generate_content(prompt)
-                    script_json_text = response.text.strip()
-                    
-                    if script_json_text.startswith("```json"):
-                        script_json_text = script_json_text[7:]
-                    if script_json_text.endswith("```"):
-                        script_json_text = script_json_text[:-3]
-                    
-                    script_data = json.loads(script_json_text)
-                    st.success("✅ السيناريو جاهز!")
-                    
-                    st.subheader(f"🎬 {script_data.get('title')}")
-                    
-                    st.markdown("#### 👥 الشخصيات")
-                    for char in script_data.get('characters', []):
-                        st.markdown(f"- **{char['name']}**: {char['description']}")
-                        
-                    st.markdown("#### 📍 المواقع")
-                    for loc in script_data.get('locations', []):
-                        st.markdown(f"- **{loc['name']}**: {loc['description']}")
-                        
-                    st.markdown("#### 🎞️ المشاهد")
-                    full_dialogue = ""
-                    for scene in script_data.get('scenes', []):
-                        with st.expander(f"المشهد {scene['scene_number']} - {scene['location']}"):
-                            st.markdown(f"**الوصف البصري:** {scene['visual_description']}")
-                            st.markdown(f"**الحوار:** {scene['dialogue']}")
-                            full_dialogue += scene['dialogue'] + " "
-                    
-                    st.download_button("⬇️ تحميل السيناريو (JSON)", 
-                                       data=json.dumps(script_data, ensure_ascii=False, indent=4),
-                                       file_name="script.json", mime="application/json")
-                
-                with st.spinner(f"جاري توليد الصوت باستعمال {selected_voice}..."):
-                    if full_dialogue.strip():
-                        # 1. قاموس النطق المغربي
-                        darija_phonetics = {
-                            "القهوة": "لْقَهْوَة", "المسمن": "لْمَسْمَنْ", "الفريجيدير": "لْفْرِيجِيدِير",
-                            "الحلاق": "لْحَلَّاق", "الكيك": "لْكِيك", "ديال": "دْيَال", "واش": "وَاشْ"
-                        }
-                        for word, phonetic in darija_phonetics.items():
-                            full_dialogue = full_dialogue.replace(word, phonetic)
-
-                        try:
-                            from google import genai as google_genai
-                            from google.genai import types
-                            
-                            client = google_genai.Client(api_key=gemini_api_key)
-                            
-                            # 2. تعليمات الأقواس
-                            tts_instruction = f"""
-                            أنت ممثل صوتي محترف. اقرأ النص التالي بصوت طبيعي.
-                            تحذير مهم: أي كلام بين قوسين ( ) هو تعليمات إخراجية للتمثيل فقط (بحال: كيهضر مع راسو، يضحك). 
-                            ممنوع تنطق الكلمات التي بين القوسين. طبق الإحساس فقط وتجاوز القوسين.
-                            
-                            النص:
-                            {full_dialogue}
                             """
                             
-                            # 3. توليد الصوت باستعمال Gemini TTS
-                            response = client.models.generate_content(
-                                model="gemini-2.0-flash", # النموذج المستقر للصوت
-                                contents=tts_instruction,
-                                config=types.GenerateContentConfig(
-                                    response_modalities=["AUDIO"],
-                                    speech_config=types.SpeechConfig(
-                                        voice_config=types.VoiceConfig(
-                                            prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                                                voice_name=selected_voice
-                                            )
+                            response = model.generate_content(prompt)
+                            script_json_text = response.text.strip()
+                            
+                            if script_json_text.startswith("```json"):
+                                script_json_text = script_json_text[7:]
+                            if script_json_text.endswith("```"):
+                                script_json_text = script_json_text[:-3]
+                            
+                            script_data = json.loads(script_json_text)
+                            st.success("✅ السيناريو جاهز!")
+                            
+                            st.subheader(f"🎬 {script_data.get('title')}")
+                            
+                            st.markdown("#### 👥 الشخصيات")
+                            for char in script_data.get('characters', []):
+                                st.markdown(f"- **{char['name']}**: {char['description']}")
+                                
+                            st.markdown("#### 📍 المواقع")
+                            for loc in script_data.get('locations', []):
+                                st.markdown(f"- **{loc['name']}**: {loc['description']}")
+                                
+                            st.markdown("#### 🎞️ المشاهد")
+                            for scene in script_data.get('scenes', []):
+                                with st.expander(f"المشهد {scene['scene_number']} - {scene['location']}"):
+                                    st.markdown(f"**الوصف البصري:** {scene['visual_description']}")
+                                    st.markdown(f"**الحوار:** {scene['dialogue']}")
+                                    full_dialogue += scene['dialogue'] + " "
+                            
+                            st.download_button("⬇️ تحميل السيناريو (JSON)", 
+                                               data=json.dumps(script_data, ensure_ascii=False, indent=4),
+                                               file_name="script.json", mime="application/json")
+                    except Exception as e:
+                        st.error(f"وقع شي مشكل فـ السيناريو: {e}")
+            
+            # 2. حالة السيناريو الجاهز
+            else:
+                if not custom_script:
+                    st.warning("عافاك لصق السيناريو ديالك.")
+                else:
+                    full_dialogue = custom_script
+
+            # 3. توليد الصوت (كيتخدم فالحالتين)
+            if full_dialogue.strip():
+                with st.spinner(f"جاري توليد الصوت باستعمال {selected_voice}..."):
+                    # قاموس النطق المغربي
+                    darija_phonetics = {
+                        "القهوة": "لْقَهْوَة", "المسمن": "لْمَسْمَنْ", "الفريجيدير": "لْفْرِيجِيدِير",
+                        "الحلاق": "لْحَلَّاق", "الكيك": "لْكِيك", "ديال": "دْيَال", "واش": "وَاشْ"
+                    }
+                    for word, phonetic in darija_phonetics.items():
+                        full_dialogue = full_dialogue.replace(word, phonetic)
+
+                    try:
+                        from google import genai as google_genai
+                        from google.genai import types
+                        
+                        client = google_genai.Client(api_key=gemini_api_key)
+                        
+                        # تعليمات الأقواس
+                        tts_instruction = f"""
+                        أنت ممثل صوتي محترف. اقرأ النص التالي بصوت طبيعي.
+                        تحذير مهم: أي كلام بين قوسين ( ) أو [ ] هو تعليمات إخراجية للتمثيل فقط (بحال: كيهضر مع راسو، يضحك). 
+                        ممنوع تنطق الكلمات التي بين القوسين. طبق الإحساس فقط وتجاوز القوسين.
+                        
+                        النص:
+                        {full_dialogue}
+                        """
+                        
+                        # توليد الصوت
+                        response = client.models.generate_content(
+                            model="gemini-2.0-flash", 
+                            contents=tts_instruction,
+                            config=types.GenerateContentConfig(
+                                response_modalities=["AUDIO"],
+                                speech_config=types.SpeechConfig(
+                                    voice_config=types.VoiceConfig(
+                                        prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                                            voice_name=selected_voice
                                         )
                                     )
                                 )
                             )
-                            
-                            # 4. حفظ الصوت
-                            audio_data = response.candidates[0].content.parts[0].inline_data.data
-                            with open("voiceover.wav", "wb") as f:
-                                f.write(audio_data)
-                            
-                            st.success(f"✅ الصوت جاهز باستعمال {selected_voice}!")
-                            st.audio("voiceover.wav", format="audio/wav")
-                            
-                        except Exception as e:
-                            st.error(f"وقع مشكل فـ توليد الصوت: {e}")
-            except Exception as e:
-                st.error(f"وقع شي مشكل فـ السيناريو: {e}")
+                        )
+                        
+                        audio_data = response.candidates[0].content.parts[0].inline_data.data
+                        with open("voiceover.wav", "wb") as f:
+                            f.write(audio_data)
+                        
+                        st.success(f"✅ الصوت جاهز باستعمال {selected_voice}!")
+                        st.audio("voiceover.wav", format="audio/wav")
+                        
+                    except Exception as e:
+                        st.error(f"وقع مشكل فـ توليد الصوت: {e}")
 
 # ==========================================
 # التاب 2: توليد فيديو بالذكاء الاصطناعي (Magic Hour)
@@ -291,7 +317,7 @@ with tab4:
     st.header("تجميع الفيديو النهائي للرفع")
     
     uploaded_videos = st.file_uploader("تحميل مقاطع الفيديو (بترتيب المشاهد):", type=["mp4", "mov"], accept_multiple_files=True)
-    uploaded_audio = st.file_uploader("تحميل الصوت (Voiceover - MP3/WAV):", type=["mp3", "wav"])
+    uploaded_audio = st.file_uploader("تحميل الصوت (Voiceover - WAV/MP3):", type=["mp3", "wav"])
     
     if st.button("🚀 تجميع ودمج الفيديو"):
         if not uploaded_videos:
