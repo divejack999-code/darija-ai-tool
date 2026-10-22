@@ -34,6 +34,8 @@ with st.sidebar:
             "الجزائرية",
             "التركية"
         ]
+    )
+
     tone = st.selectbox(
         "الستايل (Tone):",
         [
