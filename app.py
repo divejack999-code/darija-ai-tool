@@ -407,7 +407,6 @@ with tab5:
                         from gradio_client import Client
                         import ast
                         
-                        # الاتصال بالمساحة
                         try:
                             client = Client("ACE-Step/Ace-Step-v1.5", token=st.session_state.hf_api_key)
                         except TypeError:
@@ -415,7 +414,6 @@ with tab5:
                         except Exception:
                             client = Client("ACE-Step/Ace-Step-v1.5")
                         
-                        # --- جلب واجهة الـ API والبحث عن خيار النموذج ونوع المهمة ---
                         api_info = client.view_api(return_format="dict")
                         endpoints = api_info.get("named_endpoints", {})
                         endpoint_to_use = "/generation_wrapper"
@@ -428,38 +426,50 @@ with tab5:
                                 p_name = param.get("parameter_name")
                                 p_type = param.get("type", {})
                                 p_type_str = str(p_type).lower()
+                                p_name_lower = p_name.lower()
                                 
-                                # 1. الخانات اللي فيها قائمة اختيارات (Choices)
+                                # 1. خانات الاختيار من قائمة (Choices)
                                 if "literal" in p_type_str or "enum" in p_type_str or "choices" in p_type_str:
                                     choices = []
-                                    # محاولة استخراج القائمة من النص (مثلاً: Literal['a', 'b'])
                                     match = re.search(r"\[(.*?)\]", str(p_type))
                                     if match:
                                         try:
                                             choices = ast.literal_eval(f"[{match.group(1)}]")
                                         except:
                                             pass
-                                    
                                     if choices and isinstance(choices, list) and len(choices) > 0:
-                                        # كنختارو القيمة الأولى من القائمة (بحال 'acestep-v15-turbo')
-                                        kwargs[p_name] = choices[0]
+                                        if "model" in p_name_lower or "mode" in p_name_lower:
+                                            turbo_choice = next((c for c in choices if "turbo" in str(c).lower()), None)
+                                            kwargs[p_name] = turbo_choice if turbo_choice else choices[0]
+                                        else:
+                                            kwargs[p_name] = choices[0]
                                     else:
-                                        # إلا ما لقيناش القائمة، كنحطو شي قيمة افتراضية
-                                        kwargs[p_name] = "acestep-v15-turbo" if "model" in p_name.lower() or "mode" in p_name.lower() else ""
+                                        kwargs[p_name] = "acestep-v15-turbo" if "model" in p_name_lower or "mode" in p_name_lower else ""
                                 
-                                # 2. خانة النص (الوصف)
-                                elif p_name in ["captions", "caption", "prompt", "text"]:
+                                # 2. خانات النصوص
+                                elif p_name_lower in ["captions", "caption", "prompt", "text"]:
                                     kwargs[p_name] = ace_step_prompt
-                                
-                                # 3. خانات النصوص العادية
                                 elif "string" in p_type_str or (isinstance(p_type, dict) and p_type.get("type") == "string"):
                                     kwargs[p_name] = ""
                                 
-                                # 4. خانات الأرقام
+                                # 3. خانات الأرقام (تجنب 0.0 وتعيين القيم الافتراضية)
                                 elif "number" in p_type_str or (isinstance(p_type, dict) and p_type.get("type") == "number"):
-                                    kwargs[p_name] = 0.0
+                                    if "step" in p_name_lower:
+                                        kwargs[p_name] = 8 # القيمة الافتراضية لـ inference_steps
+                                    elif "guidance" in p_name_lower or "cfg" in p_name_lower:
+                                        kwargs[p_name] = 7.0
+                                    elif "duration" in p_name_lower or "length" in p_name_lower:
+                                        kwargs[p_name] = -1 # -1 تعني تلقائي
+                                    elif "batch" in p_name_lower:
+                                        kwargs[p_name] = 2
+                                    elif "bpm" in p_name_lower or "tempo" in p_name_lower:
+                                        kwargs[p_name] = 30
+                                    elif "seed" in p_name_lower:
+                                        kwargs[p_name] = -1
+                                    else:
+                                        kwargs[p_name] = 1 # حد أدنى آمن
                                 
-                                # 5. خانات الاختيار (Boolean)
+                                # 4. خانات Boolean
                                 elif "boolean" in p_type_str or (isinstance(p_type, dict) and p_type.get("type") == "boolean"):
                                     kwargs[p_name] = False
                                 
@@ -469,7 +479,6 @@ with tab5:
                             st.info("جاري إرسال الطلب بالبارامترات الصحيحة...")
                             result = client.predict(api_name=endpoint_to_use, **kwargs)
                             
-                            # معالجة النتيجة
                             audio_data = None
                             if isinstance(result, str) and os.path.exists(result):
                                 with open(result, "rb") as f:
