@@ -406,7 +406,7 @@ with tab5:
                     try:
                         from gradio_client import Client
                         
-                        # الاتصال بالمساحة (مع معالجة خطأ الوسيط token/hf_token)
+                        # الاتصال بالمساحة
                         try:
                             client = Client("ACE-Step/Ace-Step-v1.5", token=st.session_state.hf_api_key)
                         except TypeError:
@@ -414,50 +414,60 @@ with tab5:
                         except Exception:
                             client = Client("ACE-Step/Ace-Step-v1.5")
                         
-                        # استخدام اسم الدالة الصحيح والمعاملات المطلوبة
-                        api_name_to_use = "/generation_wrapper"
-                        st.info(f"جاري استخدام الدالة: {api_name_to_use}")
+                        # --- الآلية الذكية: قراءة البارامترات المطلوبة أوتوماتيكياً ---
+                        api_info = client.view_api(return_format="dict")
+                        endpoints = api_info.get("named_endpoints", {})
                         
-                        # استدعاء الدالة بالمعاملات الصحيحة
-                        result = client.predict(
-                            captions=ace_step_prompt,
-                            lyrics="[Instrumental]",
-                            bpm=None,
-                            key_scale="",
-                            time_signature="",
-                            vocal_language="unknown",
-                            inference_steps=8,
-                            guidance_scale=7.0,
-                            random_seed_checkbox=True,
-                            seed="-1",
-                            audio_duration=-1,
-                            batch_size_input=2,
-                            task_type="text2music",
-                            audio_format="mp3",
-                            api_name=api_name_to_use
-                        )
+                        # الدالة اللي كنا كنستعملو
+                        endpoint_to_use = "/generation_wrapper"
                         
-                        # معالجة النتيجة
-                        audio_data = None
-                        if isinstance(result, str) and os.path.exists(result):
-                            with open(result, "rb") as f:
-                                audio_data = f.read()
-                        elif isinstance(result, dict) and "audio" in result:
-                            audio_path = result["audio"]
-                            if isinstance(audio_path, str) and os.path.exists(audio_path):
-                                with open(audio_path, "rb") as f:
+                        if endpoint_to_use in endpoints:
+                            params_info = endpoints[endpoint_to_use].get("parameters", [])
+                            kwargs = {}
+                            
+                            for param in params_info:
+                                p_name = param.get("parameter_name")
+                                p_type = param.get("type", {})
+                                
+                                # كنحطو الوصف ديالنا فـ خانة الوصف
+                                if p_name in ["captions", "caption", "prompt", "text"]:
+                                    kwargs[p_name] = ace_step_prompt
+                                # كنعمرو باقي الخانات بقيم فارغة باش ما يطعش خطأ
+                                elif "string" in str(p_type).lower() or p_type.get("type") == "string":
+                                    kwargs[p_name] = ""
+                                elif "number" in str(p_type).lower() or p_type.get("type") == "number":
+                                    kwargs[p_name] = 0
+                                elif "boolean" in str(p_type).lower() or p_type.get("type") == "boolean":
+                                    kwargs[p_name] = False
+                                else:
+                                    kwargs[p_name] = None
+                            
+                            st.info("جاري إرسال الطلب بالبارامترات الصحيحة...")
+                            result = client.predict(api_name=endpoint_to_use, **kwargs)
+                            
+                            # معالجة النتيجة
+                            audio_data = None
+                            if isinstance(result, str) and os.path.exists(result):
+                                with open(result, "rb") as f:
                                     audio_data = f.read()
-                        elif isinstance(result, tuple) and len(result) > 0:
-                            first_item = result[0]
-                            if isinstance(first_item, str) and os.path.exists(first_item):
-                                with open(first_item, "rb") as f:
-                                    audio_data = f.read()
-                        
-                        if audio_data:
-                            st.success("✅ الموسيقى جاهزة (ACE-Step HF)!")
-                            st.audio(audio_data, format="audio/mp3")
+                            elif isinstance(result, dict) and "audio" in result:
+                                audio_path = result["audio"]
+                                if isinstance(audio_path, str) and os.path.exists(audio_path):
+                                    with open(audio_path, "rb") as f:
+                                        audio_data = f.read()
+                            elif isinstance(result, tuple) and len(result) > 0:
+                                first_item = result[0]
+                                if isinstance(first_item, str) and os.path.exists(first_item):
+                                    with open(first_item, "rb") as f:
+                                        audio_data = f.read()
+                            
+                            if audio_data:
+                                st.success("✅ الموسيقى جاهزة (ACE-Step HF)!")
+                                st.audio(audio_data, format="audio/mp3")
+                            else:
+                                st.error(f"لم يتم استلام ملف صوتي صالح. النتيجة المستلمة: {result}")
                         else:
-                            st.error(f"لم يتم استلام ملف صوتي صالح. النتيجة المستلمة: {result}")
+                            st.error(f"لم نتمكن من العثور على الدالة {endpoint_to_use} في المساحة. الدوال المتاحة: {list(endpoints.keys())}")
                             
                     except Exception as e:
                         st.error(f"وقع مشكل مع Hugging Face: {e}")
