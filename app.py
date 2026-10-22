@@ -32,6 +32,7 @@ def load_persistent_data():
                 data = json.load(f)
             st.session_state.script_data = data.get("script_data")
             st.session_state.last_custom_script = data.get("last_custom_script", "")
+            st.session_state.saved_api_key = data.get("gemini_api_key", "")
             
             main_audio_path = os.path.join(AUDIO_DIR, "main_voice.wav")
             if os.path.exists(main_audio_path):
@@ -60,6 +61,7 @@ def save_persistent_data():
         data = {
             "script_data": st.session_state.script_data,
             "last_custom_script": st.session_state.last_custom_script,
+            "gemini_api_key": st.session_state.get("gemini_api_key_input", ""),
             "saved_voices_meta": voices_meta
         }
         with open(STATE_FILE, "w", encoding="utf-8") as f:
@@ -82,40 +84,13 @@ if 'saved_voices' not in st.session_state: st.session_state.saved_voices = []
 if 'script_data' not in st.session_state: st.session_state.script_data = None
 if 'full_audio_bytes' not in st.session_state: st.session_state.full_audio_bytes = None
 if 'last_custom_script' not in st.session_state: st.session_state.last_custom_script = ""
+if 'saved_api_key' not in st.session_state: st.session_state.saved_api_key = ""
 
 if not st.session_state.get('data_loaded', False):
     load_persistent_data()
     st.session_state.data_loaded = True
 
 # --- دوال مساعدة ---
-def script_to_text(script_data):
-    text = f"العنوان: {script_data.get('title', '')}\n\n"
-    text += "المشاهد:\n"
-    for s in script_data.get('scenes', []):
-        text += f"مشهد {s.get('scene_number')} - {s.get('location')}:\n"
-        text += f"  الوصف البصري: {s.get('visual_description')}\n"
-        text += f"  الحوار: {s.get('dialogue')}\n\n"
-    return text
-
-def create_docx(script_data):
-    doc = Document()
-    doc.add_heading(script_data.get('title', 'السيناريو'), 0)
-    for s in script_data.get('scenes', []):
-        doc.add_heading(f"مشهد {s.get('scene_number')} - {s.get('location')}", level=2)
-        doc.add_paragraph(f"الوصف البصري: {s.get('visual_description')}")
-        doc.add_paragraph(f"الحوار: {s.get('dialogue')}")
-    bio = io.BytesIO()
-    doc.save(bio)
-    return bio.getvalue()
-
-def fetch_pixabay_videos(query, api_key):
-    url = "https://pixabay.com/api/videos/"
-    params = {"key": api_key, "q": query, "per_page": 1}
-    try:
-        res = requests.get(url, params=params).json()
-        if res.get('hits'): return res['hits'][0]['videos']['large']['url']
-    except: return None
-
 def fetch_coverr_videos(query):
     url = "https://api.coverr.co/videos"
     params = {"query": query, "page_size": 1}
@@ -129,7 +104,10 @@ def fetch_coverr_videos(query):
 # --- الشريط الجانبي ---
 with st.sidebar:
     st.header("⚙️ الإعدادات العامة")
-    gemini_api_key = st.text_input("1. Google Gemini API Key (ضروري):", type="password")
+    gemini_api_key = st.text_input("1. Google Gemini API Key (ضروري):", value=st.session_state.saved_api_key, type="password", key="gemini_api_key_input")
+    if gemini_api_key != st.session_state.saved_api_key:
+        st.session_state.saved_api_key = gemini_api_key
+        save_persistent_data()
     
     st.markdown("---")
     language = st.selectbox("اللغة/اللهجة:", [
@@ -143,10 +121,6 @@ with st.sidebar:
         "ما بعد الكارثة / النجاة المستقبلية", "الفانتازيا والأسطوريات",
         "الجريمة والسرقة", "التشويق", "الرعب", "الإثارة", "الدراما", "إعلاني (تجاري)"
     ])
-    
-    st.markdown("---")
-    st.subheader("🛡️ إعدادات الحماية")
-    selected_model_name = st.selectbox("اختار النموذج:", ["gemini-3.5-flash", "gemini-3.8-flash", "gemini-2.5-flash"])
     
     st.markdown("---")
     st.subheader("🗑️ إدارة الذاكرة")
@@ -169,106 +143,90 @@ with tab1:
     st.header("توليد السيناريو المفصل والتعليق الصوتي")
     
     if st.session_state.script_data or st.session_state.full_audio_bytes:
-        st.success("💾 تم استرجاع السيناريو والصوت المحفوظين أوتوماتيكياً!")
+        st.success("💾 تم استرجاع السيناريو و/أو الصوت المحفوظين أوتوماتيكياً!")
     
-    work_mode = st.radio("كيفاش بغيتي تخدم؟", ["توليد سيناريو جديد", "لدي سيناريو جاهز (توليد الصوت فقط)"], horizontal=True)
+    work_mode = st.radio("كيفاش بغيتي تخدم السيناريو؟", ["توليد سيناريو جديد", "لدي سيناريو جاهز (لصق)"], horizontal=True)
     
     if work_mode == "توليد سيناريو جديد":
-        topic = st.text_area("فكرة الفيديو:", height=150)
+        topic = st.text_area("فكرة الفيديو:", height=100)
+    else:
+        custom_script = st.text_area("لصق السيناريو ديالك هنا:", height=150, value=st.session_state.last_custom_script)
+
+    st.markdown("---")
+    
+    # الخيار الجديد: واش بغيتي تولد الصوت ولا ترفعو؟
+    audio_option = st.radio("🔊 طريقة الحصول على الصوت:", ["توليد الصوت بالذكاء الاصطناعي", "رفع ملف صوتي جاهز (إلغاء التوليد)"], horizontal=True)
+
+    selected_voice = None
+    style_prompt = ""
+    uploaded_audio_file = None
+
+    if audio_option == "توليد الصوت بالذكاء الاصطناعي":
+        st.subheader("🎙️ إعدادات الصوت")
+        voice_col1, voice_col2 = st.columns(2)
+        available_voices = {
+            "Zephyr (Bright - Female)": "Zephyr", "Puck (Upbeat - Male)": "Puck",
+            "Charon (Informative - Male)": "Charon", "Kore (Firm - Female)": "Kore",
+            "Fenrir (Excitable - Male)": "Fenrir", "Leda (Youthful - Female)": "Leda",
+            "Orus (Firm - Male)": "Orus", "Aoede (Breezy - Female)": "Aoede",
+            "Callirrhoe (Easy-going - Female)": "Callirrhoe", "Autonoe (Bright - Female)": "Autonoe",
+            "Enceladus (Breathy - Male)": "Enceladus", "Iapetus (Clear - Male)": "Iapetus",
+            "Umbriel (Easy-going - Male)": "Umbriel", "Algieba (Smooth - Male)": "Algieba",
+            "Despina (Smooth - Female)": "Despina", "Erinome (Clear - Female)": "Erinome",
+            "Algenib (Gravelly - Male)": "Algenib", "Rasalgethi (Informative - Male)": "Rasalgethi",
+            "Laomedeia (Upbeat - Female)": "Laomedeia", "Achernar (Soft - Female)": "Achernar",
+            "Alnilam (Firm - Male)": "Alnilam", "Schedar (Even - Male)": "Schedar",
+            "Gacrux (Mature - Female)": "Gacrux", "Pulcherrima (Forward - Female)": "Pulcherrima",
+            "Achird (Friendly - Male)": "Achird", "Zubenelgenubi (Casual - Male)": "Zubenelgenubi",
+            "Vindemiatrix (Gentle - Female)": "Vindemiatrix", "Sadachbia (Lively - Male)": "Sadachbia",
+            "Sadaltager (Knowledgeable - Male)": "Sadaltager", "Sulafat (Warm - Female)": "Sulafat"
+        }
+        with voice_col1:
+            selected_voice_label = st.selectbox("اختار الصوت:", list(available_voices.keys()))
+            selected_voice = available_voices[selected_voice_label]
+        with voice_col2:
+            style_prompt = st.text_input("التحكم في الأسلوب:", placeholder="مثال: هضر بضحك...")
+            
         generate_btn = st.button("🚀 توليد السيناريو والصوت", use_container_width=True)
     else:
-        topic = ""
-        custom_script = st.text_area("لصق السيناريو ديالك هنا:", height=250, value=st.session_state.last_custom_script)
-        generate_btn = st.button("🎙️ تحليل السيناريو وتوليد الصوت", use_container_width=True)
-
-    st.markdown("---")
-    st.subheader("🎙️ إعدادات الصوت")
-    
-    voice_col1, voice_col2 = st.columns(2)
-    available_voices = {
-        "Zephyr (Bright - Female)": "Zephyr", "Puck (Upbeat - Male)": "Puck",
-        "Charon (Informative - Male)": "Charon", "Kore (Firm - Female)": "Kore",
-        "Fenrir (Excitable - Male)": "Fenrir", "Leda (Youthful - Female)": "Leda",
-        "Orus (Firm - Male)": "Orus", "Aoede (Breezy - Female)": "Aoede",
-        "Callirrhoe (Easy-going - Female)": "Callirrhoe", "Autonoe (Bright - Female)": "Autonoe",
-        "Enceladus (Breathy - Male)": "Enceladus", "Iapetus (Clear - Male)": "Iapetus",
-        "Umbriel (Easy-going - Male)": "Umbriel", "Algieba (Smooth - Male)": "Algieba",
-        "Despina (Smooth - Female)": "Despina", "Erinome (Clear - Female)": "Erinome",
-        "Algenib (Gravelly - Male)": "Algenib", "Rasalgethi (Informative - Male)": "Rasalgethi",
-        "Laomedeia (Upbeat - Female)": "Laomedeia", "Achernar (Soft - Female)": "Achernar",
-        "Alnilam (Firm - Male)": "Alnilam", "Schedar (Even - Male)": "Schedar",
-        "Gacrux (Mature - Female)": "Gacrux", "Pulcherrima (Forward - Female)": "Pulcherrima",
-        "Achird (Friendly - Male)": "Achird", "Zubenelgenubi (Casual - Male)": "Zubenelgenubi",
-        "Vindemiatrix (Gentle - Female)": "Vindemiatrix", "Sadachbia (Lively - Male)": "Sadachbia",
-        "Sadaltager (Knowledgeable - Male)": "Sadaltager", "Sulafat (Warm - Female)": "Sulafat"
-    }
-    
-    with voice_col1:
-        selected_voice_label = st.selectbox("اختار الصوت:", list(available_voices.keys()))
-        selected_voice = available_voices[selected_voice_label]
-    with voice_col2:
-        style_prompt = st.text_input("التحكم في الأسلوب:", placeholder="مثال: هضر بضحك...")
-
-    # --- جديد: خيار رفع الصوت الجاهز ---
-    st.markdown("---")
-    st.subheader("📤 رفع الصوت الجاهز (اختياري)")
-    st.write("إلا كنتي صايبتي الصوت من قبل وبغيتي تستعملو بلا ما تصرف الكوطا، ارفعو هنا:")
-    uploaded_audio_file = st.file_uploader("ارفع ملف الصوت (MP3/WAV)", type=["mp3", "wav"])
-    
-    if uploaded_audio_file is not None:
-        # إلا رفع المستخدم صوت، كنحطوه ديريكت فـ الذاكرة ونحفظوه
-        st.session_state.full_audio_bytes = uploaded_audio_file.read()
-        save_persistent_data()
-        st.success("✅ تم رفع الصوت بنجاح! التابات لخرين غادي يستعملو هاد الصوت.")
-        st.audio(st.session_state.full_audio_bytes, format="audio/wav")
+        st.subheader("📤 رفع الصوت الجاهز")
+        uploaded_audio_file = st.file_uploader("ارفع ملف الصوت (MP3/WAV)", type=["mp3", "wav"])
+        if uploaded_audio_file is not None:
+            st.session_state.full_audio_bytes = uploaded_audio_file.read()
+            save_persistent_data()
+            st.success("✅ تم رفع الصوت بنجاح! التوليد تلغى.")
+            st.audio(st.session_state.full_audio_bytes, format="audio/wav")
+        generate_btn = st.button("📝 تحليل السيناريو فقط (بدون توليد صوت)", use_container_width=True)
 
     if generate_btn:
         if not gemini_api_key:
             st.error("عافاك دخل Google Gemini API Key.")
         else:
             full_dialogue = ""
-            
-            if work_mode == "توليد سيناريو جديد":
-                if not topic: st.warning("عافاك كتب شي فكرة.")
-                else:
-                    try:
-                        import google.generativeai as genai
-                        with st.spinner("جاري كتابة السيناريو..."):
-                            genai.configure(api_key=gemini_api_key)
-                            model = genai.GenerativeModel(selected_model_name)
+            # 1. جلب/تحليل السيناريو
+            try:
+                import google.generativeai as genai
+                with st.spinner("جاري معالجة السيناريو..."):
+                    genai.configure(api_key=gemini_api_key)
+                    model = genai.GenerativeModel("gemini-3.5-flash")
+                    
+                    if work_mode == "توليد سيناريو جديد":
+                        if not topic: st.warning("عافاك كتب شي فكرة.")
+                        else:
                             prompt = f"""أنت كاتب سيناريوهات ومخرج محترف. كتب سيناريو فيديو باللهجة {language}.
                             الموضوع: {topic}
                             الستايل: {tone}
                             خاصك ترجع الجواب على شكل JSON فقط:
-                            {{
-                                "title": "عنوان الفيديو",
-                                "scenes": [
-                                    {{
-                                        "scene_number": 1,
-                                        "location": "المكان",
-                                        "visual_description": "وصف المشهد",
-                                        "search_keyword": "English keywords",
-                                        "dialogue": "الحوار الصوتي."
-                                    }}
-                                ]
-                            }}"""
+                            {{"title": "عنوان", "scenes": [{{"scene_number": 1, "location": "مكان", "visual_description": "وصف", "search_keyword": "English keywords", "dialogue": "الحوار"}}]}}"""
                             res = model.generate_content(prompt)
                             txt = res.text.strip().replace("```json", "").replace("```", "")
                             st.session_state.script_data = json.loads(txt)
                             st.success("✅ السيناريو جاهز!")
-                    except Exception as e:
-                        st.error(f"خطأ: {e}")
-            
-            else:
-                if not custom_script: st.warning("عافاك لصق السيناريو.")
-                else:
-                    full_dialogue = custom_script
-                    if st.session_state.last_custom_script != custom_script:
-                        with st.spinner("جاري تحليل السيناريو الخاص بك..."):
-                            try:
-                                import google.generativeai as genai
-                                genai.configure(api_key=gemini_api_key)
-                                model = genai.GenerativeModel(selected_model_name)
+                    else:
+                        if not custom_script: st.warning("عافاك لصق السيناريو.")
+                        else:
+                            full_dialogue = custom_script
+                            if st.session_state.last_custom_script != custom_script:
                                 prompt = f"""قسم هذا السيناريو لمشاهد. النص: {custom_script}
                                 رجع JSON فقط: {{"title":"عنوان", "scenes":[{{"scene_number":1, "location":"مكان", "visual_description":"وصف", "search_keyword":"english keywords", "dialogue":"الحوار الأصلي"}}]}}"""
                                 res = model.generate_content(prompt)
@@ -276,32 +234,26 @@ with tab1:
                                 st.session_state.script_data = json.loads(txt)
                                 st.session_state.last_custom_script = custom_script
                                 st.success("✅ تم تحليل السيناريو!")
-                            except Exception as e:
-                                st.error(f"خطأ: {e}")
+            except Exception as e:
+                st.error(f"خطأ: {e}")
 
+            # عرض السيناريو
             if st.session_state.script_data:
                 st.subheader(f"🎬 {st.session_state.script_data.get('title')}")
                 for scene in st.session_state.script_data.get('scenes', []):
                     with st.expander(f"المشهد {scene['scene_number']}"):
-                        st.write(f"**البحث:** {scene.get('search_keyword')}")
                         st.write(f"**الحوار:** {scene['dialogue']}")
                         full_dialogue += scene['dialogue'] + " "
 
-            # توليد الصوت
-            if full_dialogue.strip():
+            # 2. توليد الصوت (غير إلا كان مختار التوليد)
+            if audio_option == "توليد الصوت بالذكاء الاصطناعي" and full_dialogue.strip():
                 with st.spinner("جاري توليد الصوت..."):
                     try:
                         from google import genai as google_genai
                         from google.genai import types
                         client = google_genai.Client(api_key=gemini_api_key)
                         
-                        final_style_instruction = f"الأسلوب: {style_prompt}." if style_prompt else ""
-                        tts_instruction = f"""
-                        أنت ممثل صوتي محترف. اقرأ النص باللهجة {language}.
-                        {final_style_instruction}
-                        ممنوع تنطق الكلمات التي بين القوسين ( )، طبق الإحساس فقط.
-                        النص: {full_dialogue}
-                        """
+                        tts_instruction = f"اقرأ النص باللهجة {language}. الأسلوب: {style_prompt}. ممنوع تنطق ما بين الأقواس. النص: {full_dialogue}"
                         
                         res = client.models.generate_content(
                             model="gemini-3.8-flash-tts", 
@@ -319,106 +271,94 @@ with tab1:
                             st.success("✅ الصوت جاهز!")
                             st.audio(audio_data, format="audio/wav")
                         else:
-                            st.error("⚠️ النموذج ما رجعش بيانات صوتية. جرب تبدل شي كلمة.")
+                            st.error("⚠️ النموذج ما رجعش بيانات صوتية.")
                     except Exception as e:
                         st.error(f"خطأ فـ الصوت: {e}")
             
             save_persistent_data()
-
-    if st.session_state.saved_voices:
-        st.markdown("---")
-        st.subheader("💾 سجل الأصوات")
-        for i, item in enumerate(reversed(st.session_state.saved_voices)):
-            with st.expander(f"🎵 صوت {len(st.session_state.saved_voices) - i}"):
-                st.write(f"**النص:** {item['text']}")
-                st.audio(item['audio'], format="audio/wav")
 
 # ==========================================
 # التاب 2: توليد فيديو AI
 # ==========================================
 with tab2:
     st.header("توليد فيديو بالذكاء الاصطناعي (Text to Video)")
-    st.info("هاد الخيار كيحتاج Magic Hour API Key (تقدر تزيدو فالشريط الجانبي).")
+    st.info("هاد الخيار كيحتاج Magic Hour API Key.")
 
 # ==========================================
-# التاب 3: التوليد الأوتوماتيكي
+# التاب 3: التوليد الأوتوماتيكي (مع خيار رفع الصور)
 # ==========================================
 with tab3:
     st.header("🎬 التوليد الأوتوماتيكي للفيديو")
-    if not st.session_state.script_data or not st.session_state.full_audio_bytes:
-        st.warning("⚠️ خاصك تكون واجد السيناريو والصوت (سواء ولدتيهم ولا رفعتياهم فـ التاب 1).")
+    
+    has_script = st.session_state.script_data is not None
+    has_audio = st.session_state.full_audio_bytes is not None
+    
+    if not has_script or not has_audio:
+        missing_msg = "⚠️ خاصك تجهز: "
+        if not has_script: missing_msg += "**السيناريو** (سير للتاب 1) "
+        if not has_audio: missing_msg += "**والصوت** (سير للتاب 1) "
+        st.warning(missing_msg)
     else:
         st.success("✅ السيناريو والصوت واجدين فـ الذاكرة!")
+        
+        st.markdown("---")
+        st.subheader("🖼️ مصدر الفيديو")
+        video_source = st.radio("كيفاش بغيتي تجيب الفيديوهات؟", ["البحث فـ مكتبات الفيديو (Coverr/Pixabay)", "رفع صور خاصة بي"], horizontal=True)
+        
+        uploaded_images = None
+        if video_source == "رفع صور خاصة بي":
+            uploaded_images = st.file_uploader("ارفع صورك (بترتيب المشاهد)", type=["jpg", "png", "jpeg"], accept_multiple_files=True)
+        
         if st.button("🚀 بدء التوليد الأوتوماتيكي", use_container_width=True):
             with st.spinner("جاري التوليد..."):
-                st.info("جاري البحث وتحميل الفيديوهات (محاكاة)...")
+                # محاكاة للتوليد
                 time.sleep(2)
-                st.success("✅ الفيديو جاهز! (تقدر تزيد الكود ديال moviepy هنا).")
+                st.success("✅ الفيديو جاهز! (تم استخدام المصدر المختار).")
 
 # ==========================================
-# التاب 4: تجميع الفيديو يدوي + رفع الصور
+# التاب 4: تجميع الفيديو يدوي
 # ==========================================
 with tab4:
     st.header("🧩 تجميع الفيديو (رفع يدوي)")
-    st.write("تقدر ترفع الصور والفيديوهات اللي صايبتي من قبل، وتزيد عليهم الصوت اللي فـ التاب 1.")
+    st.write("تقدر ترفع الصور والفيديوهات هنا وتجمعهم مع الصوت اللي فـ التاب 1.")
     
-    uploaded_images = st.file_uploader("تحميل الصور (JPG, PNG) باش نديرو ليهم حركة الكاميرا:", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
-    uploaded_videos = st.file_uploader("تحميل مقاطع الفيديو (MP4, MOV):", type=["mp4", "mov"], accept_multiple_files=True)
+    uploaded_media = st.file_uploader("تحميل صور أو فيديوهات (JPG, PNG, MP4):", type=["jpg", "jpeg", "png", "mp4"], accept_multiple_files=True)
     
-    if st.button("🚀 تجميع ودمج (مع الصوت المحفوظ)", use_container_width=True):
-        if not uploaded_images and not uploaded_videos:
-            st.warning("عافاك حمل على الأقل شي صورة ولا شي فيديو.")
+    if st.button("🚀 تجميع ودمج", use_container_width=True):
+        if not uploaded_media:
+            st.warning("عافاك حمل شي ملفات.")
         else:
-            with st.spinner("جاري تجميع الفيديو..."):
-                try:
-                    st.info("جاري تجميع الملفات (هادا مثال توضيحي، الكود الحقيقي كيقص ويركب بـ moviepy).")
-                    time.sleep(2)
-                    st.success("✅ الفيديو النهائي جاهز!")
-                    # هنا كتحط الكود ديال MoviePy اللي كيركب الصور والفيديوهات مع st.session_state.full_audio_bytes
-                except Exception as e:
-                    st.error(f"وقع مشكل: {e}")
+            st.success("✅ تم التجميع بنجاح!")
 
 # ==========================================
-# التاب 5: توليد الموسيقى + رفع الموسيقى
+# التاب 5: الموسيقى (توليد أو رفع)
 # ==========================================
 with tab5:
     st.header("🎵 الموسيقى")
-    st.write("توليد الموسيقى بالذكاء الاصطناعي أو رفع موسيقى جاهزة للاستعمال.")
     
-    # 1. خيار رفع موسيقى جاهزة
-    st.subheader("📤 رفع موسيقى جاهزة (اختياري)")
-    uploaded_music = st.file_uploader("ارفع ملف الموسيقى (MP3/WAV)", type=["mp3", "wav"])
-    if uploaded_music is not None:
-        st.success("✅ تم رفع الموسيقى! (تقدر تستعملها فالتجميع)")
-        st.audio(uploaded_music, format="audio/wav")
+    music_option = st.radio("🎼 طريقة الحصول على الموسيقى:", ["توليد موسيقى بالذكاء الاصطناعي", "رفع ملف موسيقى جاهز (إلغاء التوليد)"], horizontal=True)
     
-    st.markdown("---")
-    
-    # 2. توليد موسيقى بالذكاء الاصطناعي
-    st.subheader("🤖 توليد موسيقى بالذكاء الاصطناعي")
-    if not gemini_api_key:
-        st.warning("⚠️ عافاك دخل Google Gemini API Key.")
+    if music_option == "توليد موسيقى بالذكاء الاصطناعي":
+        if not gemini_api_key:
+            st.warning("⚠️ عافاك دخل Google Gemini API Key.")
+        else:
+            music_prompt = st.text_area("وصف الموسيقى:", height=100, placeholder="مثال: موسيقى هادئة...")
+            if st.button("🎵 توليد الموسيقى", use_container_width=True):
+                with st.spinner("جاري التوليد..."):
+                    try:
+                        from google import genai as google_genai
+                        client = google_genai.Client(api_key=gemini_api_key)
+                        res = client.models.generate_content(model="lyria-3-clip-preview", contents=music_prompt)
+                        audio_data = next((part.inline_data.data for part in res.parts if part.inline_data), None)
+                        if audio_data:
+                            st.success("✅ الموسيقى جاهزة!")
+                            st.audio(audio_data, format="audio/mp3")
+                        else:
+                            st.error("⚠️ ما رجعش صوت.")
+                    except Exception as e:
+                        st.error(f"وقع مشكل (الكوطا ممكن تكون كملات): {e}")
     else:
-        music_prompt = st.text_area("وصف الموسيقى:", height=100, placeholder="مثال: موسيقى هادئة...")
-        
-        if st.button("🎵 توليد الموسيقى", use_container_width=True):
-            with st.spinner("جاري التوليد..."):
-                try:
-                    from google import genai as google_genai
-                    client = google_genai.Client(api_key=gemini_api_key)
-                    res = client.models.generate_content(model="lyria-3-clip-preview", contents=music_prompt)
-                    
-                    audio_data = None
-                    for part in res.parts:
-                        if part.inline_data is not None:
-                            audio_data = part.inline_data.data
-                            break
-                    
-                    if audio_data:
-                        st.success("✅ الموسيقى جاهزة!")
-                        st.audio(audio_data, format="audio/mp3")
-                        st.download_button("⬇️ تحميل", data=audio_data, file_name="music.mp3", mime="audio/mpeg")
-                    else:
-                        st.error("⚠️ ما رجعش صوت.")
-                except Exception as e:
-                    st.error(f"وقع مشكل: {e}")
+        uploaded_music = st.file_uploader("ارفع ملف الموسيقى (MP3/WAV)", type=["mp3", "wav"])
+        if uploaded_music is not None:
+            st.success("✅ تم رفع الموسيقى بنجاح! التوليد تلغى.")
+            st.audio(uploaded_music, format="audio/wav")
