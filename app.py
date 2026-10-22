@@ -397,7 +397,7 @@ with tab5:
         if st.button("🎵 توليد الموسيقى (MusicGen)", use_container_width=True, key="btn_musicgen"):
             with st.spinner("جاري التوليد عبر MusicGen... قد يستغرق بعض الوقت."):
                 try:
-                    from gradio_client import Client
+                    from gradio_client import Client, handle_file
                     
                     # الاتصال بمساحة MusicGen على Hugging Face
                     try:
@@ -405,24 +405,26 @@ with tab5:
                     except Exception:
                         client = Client("facebook/MusicGen")
                     
-                    # استدعاء الدالة /predict_batched (هي الأكثر استقراراً)
-                    # نمرر النص فقط، ونخلي melodies فارغة (None) لأننا لا نريد لحناً مرجعياً
+                    # استخدام ملف صوتي وهمي لتجنب خطأ None
+                    dummy_melody = handle_file("https://github.com/gradio-app/gradio/raw/main/test/test_files/audio_sample.wav")
+                    
+                    # استدعاء الدالة /predict_batched
                     result = client.predict(
                         texts=musicgen_prompt,
-                        melodies=None,
+                        melodies=dummy_melody,
                         api_name="/predict_batched"
                     )
                     
-                    # معالجة النتيجة
+                    # معالجة النتيجة (قد تكون tuple)
                     audio_data = None
-                    if isinstance(result, str) and os.path.exists(result):
-                        with open(result, "rb") as f:
-                            audio_data = f.read()
-                    elif isinstance(result, tuple) and len(result) > 0:
+                    if isinstance(result, tuple) and len(result) > 0:
                         first_item = result[0]
                         if isinstance(first_item, str) and os.path.exists(first_item):
                             with open(first_item, "rb") as f:
                                 audio_data = f.read()
+                    elif isinstance(result, str) and os.path.exists(result):
+                        with open(result, "rb") as f:
+                            audio_data = f.read()
                     
                     if audio_data:
                         st.success("✅ الموسيقى جاهزة (MusicGen)!")
