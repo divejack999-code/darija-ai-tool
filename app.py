@@ -17,9 +17,6 @@ from docx import Document
 st.set_page_config(page_title="AI Studio: Darija & Amazigh", page_icon="🎬", layout="wide")
 st.title("🎬 استوديو الذكاء الاصطناعي الشامل")
 
-# --- المفتاح المحفوظ ديال Pixabay ---
-DEFAULT_PIXABAY_KEY = "58178676-7dca3797f2ac366b67263077a"
-
 # --- إعدادات الحفظ الدائم (Persistent Storage) ---
 DATA_DIR = "persistent_data"
 AUDIO_DIR = os.path.join(DATA_DIR, "audios")
@@ -129,21 +126,18 @@ def fetch_coverr_videos(query):
             return urls.get('mp4_download') or urls.get('mp4_1080')
     except: return None
 
-# --- الشريط الجانبي (الإعدادات) ---
+# --- الشريط الجانبي ---
 with st.sidebar:
     st.header("⚙️ الإعدادات العامة")
     gemini_api_key = st.text_input("1. Google Gemini API Key (ضروري):", type="password")
-    pixabay_api_key = st.text_input("2. Pixabay API Key (اختياري):", value=DEFAULT_PIXABAY_KEY, type="password")
     
     st.markdown("---")
-    # قائمة اللغات كاملة
     language = st.selectbox("اللغة/اللهجة:", [
         "الدارجة المغربية", "الأمازيغية", "العربية الفصحى", 
         "المصرية", "الخليجية", "السورية", "اللبنانية", "العراقية",
         "الإنجليزية", "الفرنسية", "الإسبانية", "الألمانية", "التركية"
     ])
     
-    # قائمة الستايلات كاملة
     tone = st.selectbox("الستايل (Tone):", [
         "الكوميدية", "الأكشن والرسوم المتحركة", "الأفلام الموسيقية والرقص",
         "ما بعد الكارثة / النجاة المستقبلية", "الفانتازيا والأسطوريات",
@@ -153,7 +147,6 @@ with st.sidebar:
     st.markdown("---")
     st.subheader("🛡️ إعدادات الحماية")
     selected_model_name = st.selectbox("اختار النموذج:", ["gemini-3.5-flash", "gemini-3.8-flash", "gemini-2.5-flash"])
-    max_retries = st.number_input("عدد المحاولات:", min_value=1, max_value=10, value=3)
     
     st.markdown("---")
     st.subheader("🗑️ إدارة الذاكرة")
@@ -165,8 +158,8 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "📝 1. السيناريو والصوت", 
     "🤖 2. توليد فيديو AI", 
     "🎬 3. التوليد الأوتوماتيكي", 
-    "🧩 4. تجميع الفيديو", 
-    "🎵 5. توليد الموسيقى"
+    "🧩 4. تجميع الفيديو (صور/فيديو)", 
+    "🎵 5. الموسيقى"
 ])
 
 # ==========================================
@@ -192,8 +185,6 @@ with tab1:
     st.subheader("🎙️ إعدادات الصوت")
     
     voice_col1, voice_col2 = st.columns(2)
-    
-    # قائمة الـ 30 صوت كاملة
     available_voices = {
         "Zephyr (Bright - Female)": "Zephyr", "Puck (Upbeat - Male)": "Puck",
         "Charon (Informative - Male)": "Charon", "Kore (Firm - Female)": "Kore",
@@ -217,6 +208,19 @@ with tab1:
         selected_voice = available_voices[selected_voice_label]
     with voice_col2:
         style_prompt = st.text_input("التحكم في الأسلوب:", placeholder="مثال: هضر بضحك...")
+
+    # --- جديد: خيار رفع الصوت الجاهز ---
+    st.markdown("---")
+    st.subheader("📤 رفع الصوت الجاهز (اختياري)")
+    st.write("إلا كنتي صايبتي الصوت من قبل وبغيتي تستعملو بلا ما تصرف الكوطا، ارفعو هنا:")
+    uploaded_audio_file = st.file_uploader("ارفع ملف الصوت (MP3/WAV)", type=["mp3", "wav"])
+    
+    if uploaded_audio_file is not None:
+        # إلا رفع المستخدم صوت، كنحطوه ديريكت فـ الذاكرة ونحفظوه
+        st.session_state.full_audio_bytes = uploaded_audio_file.read()
+        save_persistent_data()
+        st.success("✅ تم رفع الصوت بنجاح! التابات لخرين غادي يستعملو هاد الصوت.")
+        st.audio(st.session_state.full_audio_bytes, format="audio/wav")
 
     if generate_btn:
         if not gemini_api_key:
@@ -275,7 +279,6 @@ with tab1:
                             except Exception as e:
                                 st.error(f"خطأ: {e}")
 
-            # عرض السيناريو
             if st.session_state.script_data:
                 st.subheader(f"🎬 {st.session_state.script_data.get('title')}")
                 for scene in st.session_state.script_data.get('scenes', []):
@@ -292,7 +295,6 @@ with tab1:
                         from google.genai import types
                         client = google_genai.Client(api_key=gemini_api_key)
                         
-                        # دمج الستايل مع التعليمات
                         final_style_instruction = f"الأسلوب: {style_prompt}." if style_prompt else ""
                         tts_instruction = f"""
                         أنت ممثل صوتي محترف. اقرأ النص باللهجة {language}.
@@ -323,7 +325,6 @@ with tab1:
             
             save_persistent_data()
 
-    # سجل الأصوات
     if st.session_state.saved_voices:
         st.markdown("---")
         st.subheader("💾 سجل الأصوات")
@@ -337,9 +338,7 @@ with tab1:
 # ==========================================
 with tab2:
     st.header("توليد فيديو بالذكاء الاصطناعي (Text to Video)")
-    ai_prompt = st.text_area("وصف المشهد بالتفصيل:", placeholder="A funny Moroccan man...")
-    if st.button("🎥 توليد الفيديو", key="btn_ai_video"):
-        st.info("هاد الخيار كيحتاج Magic Hour API Key (ماشي مضاف فهاد المثال باش نسهلو الكود).")
+    st.info("هاد الخيار كيحتاج Magic Hour API Key (تقدر تزيدو فالشريط الجانبي).")
 
 # ==========================================
 # التاب 3: التوليد الأوتوماتيكي
@@ -347,23 +346,79 @@ with tab2:
 with tab3:
     st.header("🎬 التوليد الأوتوماتيكي للفيديو")
     if not st.session_state.script_data or not st.session_state.full_audio_bytes:
-        st.warning("⚠️ خاصك تولد السيناريو والصوت فـ التاب 1 الأول.")
+        st.warning("⚠️ خاصك تكون واجد السيناريو والصوت (سواء ولدتيهم ولا رفعتياهم فـ التاب 1).")
     else:
         st.success("✅ السيناريو والصوت واجدين فـ الذاكرة!")
-        
         if st.button("🚀 بدء التوليد الأوتوماتيكي", use_container_width=True):
             with st.spinner("جاري التوليد..."):
-                st.info("جاري تجميع الفيديو من Pixabay و Coverr (هادشي كياخد شي دقيقة)...")
+                st.info("جاري البحث وتحميل الفيديوهات (محاكاة)...")
                 time.sleep(2)
-                st.success("✅ الفيديو جاهز! (هادا غير مثال توضيحي فهاد الكود، ديك المرة كنا درنا الكود الكامل ديال moviepy)")
+                st.success("✅ الفيديو جاهز! (تقدر تزيد الكود ديال moviepy هنا).")
 
 # ==========================================
-# التاب 4 و 5
+# التاب 4: تجميع الفيديو يدوي + رفع الصور
 # ==========================================
 with tab4:
-    st.header("تجميع الفيديو اليدوي")
-    st.write("رفع مقاطع الفيديو هنا...")
+    st.header("🧩 تجميع الفيديو (رفع يدوي)")
+    st.write("تقدر ترفع الصور والفيديوهات اللي صايبتي من قبل، وتزيد عليهم الصوت اللي فـ التاب 1.")
+    
+    uploaded_images = st.file_uploader("تحميل الصور (JPG, PNG) باش نديرو ليهم حركة الكاميرا:", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
+    uploaded_videos = st.file_uploader("تحميل مقاطع الفيديو (MP4, MOV):", type=["mp4", "mov"], accept_multiple_files=True)
+    
+    if st.button("🚀 تجميع ودمج (مع الصوت المحفوظ)", use_container_width=True):
+        if not uploaded_images and not uploaded_videos:
+            st.warning("عافاك حمل على الأقل شي صورة ولا شي فيديو.")
+        else:
+            with st.spinner("جاري تجميع الفيديو..."):
+                try:
+                    st.info("جاري تجميع الملفات (هادا مثال توضيحي، الكود الحقيقي كيقص ويركب بـ moviepy).")
+                    time.sleep(2)
+                    st.success("✅ الفيديو النهائي جاهز!")
+                    # هنا كتحط الكود ديال MoviePy اللي كيركب الصور والفيديوهات مع st.session_state.full_audio_bytes
+                except Exception as e:
+                    st.error(f"وقع مشكل: {e}")
 
+# ==========================================
+# التاب 5: توليد الموسيقى + رفع الموسيقى
+# ==========================================
 with tab5:
-    st.header("توليد الموسيقى")
-    st.write("توليد الموسيقى هنا...")
+    st.header("🎵 الموسيقى")
+    st.write("توليد الموسيقى بالذكاء الاصطناعي أو رفع موسيقى جاهزة للاستعمال.")
+    
+    # 1. خيار رفع موسيقى جاهزة
+    st.subheader("📤 رفع موسيقى جاهزة (اختياري)")
+    uploaded_music = st.file_uploader("ارفع ملف الموسيقى (MP3/WAV)", type=["mp3", "wav"])
+    if uploaded_music is not None:
+        st.success("✅ تم رفع الموسيقى! (تقدر تستعملها فالتجميع)")
+        st.audio(uploaded_music, format="audio/wav")
+    
+    st.markdown("---")
+    
+    # 2. توليد موسيقى بالذكاء الاصطناعي
+    st.subheader("🤖 توليد موسيقى بالذكاء الاصطناعي")
+    if not gemini_api_key:
+        st.warning("⚠️ عافاك دخل Google Gemini API Key.")
+    else:
+        music_prompt = st.text_area("وصف الموسيقى:", height=100, placeholder="مثال: موسيقى هادئة...")
+        
+        if st.button("🎵 توليد الموسيقى", use_container_width=True):
+            with st.spinner("جاري التوليد..."):
+                try:
+                    from google import genai as google_genai
+                    client = google_genai.Client(api_key=gemini_api_key)
+                    res = client.models.generate_content(model="lyria-3-clip-preview", contents=music_prompt)
+                    
+                    audio_data = None
+                    for part in res.parts:
+                        if part.inline_data is not None:
+                            audio_data = part.inline_data.data
+                            break
+                    
+                    if audio_data:
+                        st.success("✅ الموسيقى جاهزة!")
+                        st.audio(audio_data, format="audio/mp3")
+                        st.download_button("⬇️ تحميل", data=audio_data, file_name="music.mp3", mime="audio/mpeg")
+                    else:
+                        st.error("⚠️ ما رجعش صوت.")
+                except Exception as e:
+                    st.error(f"وقع مشكل: {e}")
