@@ -22,6 +22,16 @@ with st.sidebar:
     st.markdown("---")
     language = st.selectbox("اللغة/اللهجة:", ["الدارجة المغربية", "الأمازيغية", "العربية الفصحى"])
     tone = st.selectbox("الستايل (Tone):", ["الكوميدية", "الدرامية", "التشويق", "إعلاني (تجاري)"])
+    
+    st.markdown("---")
+    st.subheader("🛡️ إعدادات الحماية")
+    # قائمة النماذج باش تتفادى الأخطاء
+    selected_model_name = st.selectbox(
+        "اختار نموذج الذكاء الاصطناعي:",
+        ["gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-2.5-flash"]
+    )
+    # عدد المحاولات
+    max_retries = st.number_input("عدد المحاولات فحالة وقع خطأ (Retries):", min_value=1, max_value=10, value=3)
 
 # --- تقسيم الواجهة لـ 4 تابات ---
 tab1, tab2, tab3, tab4 = st.tabs([
@@ -108,9 +118,9 @@ with tab1:
                 else:
                     try:
                         import google.generativeai as genai
-                        with st.spinner("جاري كتابة السيناريو..."):
+                        with st.spinner(f"جاري كتابة السيناريو باستعمال {selected_model_name}..."):
                             genai.configure(api_key=gemini_api_key)
-                            model = genai.GenerativeModel('gemini-2.5-flash-lite') # نموذج مستقر
+                            model = genai.GenerativeModel(selected_model_name)
                             
                             prompt = f"""
                             أنت كاتب سيناريوهات ومخرج محترف. كتب سيناريو فيديو باللهجة {language}.
@@ -133,37 +143,50 @@ with tab1:
                             }}
                             """
                             
-                            response = model.generate_content(prompt)
-                            script_json_text = response.text.strip()
-                            
-                            if script_json_text.startswith("```json"):
-                                script_json_text = script_json_text[7:]
-                            if script_json_text.endswith("```"):
-                                script_json_text = script_json_text[:-3]
-                            
-                            script_data = json.loads(script_json_text)
-                            st.success("✅ السيناريو جاهز!")
-                            
-                            st.subheader(f"🎬 {script_data.get('title')}")
-                            
-                            st.markdown("#### 👥 الشخصيات")
-                            for char in script_data.get('characters', []):
-                                st.markdown(f"- **{char['name']}**: {char['description']}")
+                            # --- لوجيك المحاولات (Retries) ---
+                            response = None
+                            for attempt in range(max_retries):
+                                try:
+                                    response = model.generate_content(prompt)
+                                    break # إلا نجح، خرج من الحلقة
+                                except Exception as e:
+                                    if attempt < max_retries - 1:
+                                        st.warning(f"محاولة {attempt + 1} فشلت. كنعاودو المحاولة...")
+                                        time.sleep(2) # نسنى جوج ثواني قبل ما نعاود
+                                    else:
+                                        st.error(f"فشلت جميع المحاولات ({max_retries}). الخطأ: {e}")
+                                        response = None
+
+                            if response:
+                                script_json_text = response.text.strip()
+                                if script_json_text.startswith("```json"):
+                                    script_json_text = script_json_text[7:]
+                                if script_json_text.endswith("```"):
+                                    script_json_text = script_json_text[:-3]
                                 
-                            st.markdown("#### 📍 المواقع")
-                            for loc in script_data.get('locations', []):
-                                st.markdown(f"- **{loc['name']}**: {loc['description']}")
+                                script_data = json.loads(script_json_text)
+                                st.success("✅ السيناريو جاهز!")
                                 
-                            st.markdown("#### 🎞️ المشاهد")
-                            for scene in script_data.get('scenes', []):
-                                with st.expander(f"المشهد {scene['scene_number']} - {scene['location']}"):
-                                    st.markdown(f"**الوصف البصري:** {scene['visual_description']}")
-                                    st.markdown(f"**الحوار:** {scene['dialogue']}")
-                                    full_dialogue += scene['dialogue'] + " "
-                            
-                            st.download_button("⬇️ تحميل السيناريو (JSON)", 
-                                               data=json.dumps(script_data, ensure_ascii=False, indent=4),
-                                               file_name="script.json", mime="application/json")
+                                st.subheader(f"🎬 {script_data.get('title')}")
+                                
+                                st.markdown("#### 👥 الشخصيات")
+                                for char in script_data.get('characters', []):
+                                    st.markdown(f"- **{char['name']}**: {char['description']}")
+                                    
+                                st.markdown("#### 📍 المواقع")
+                                for loc in script_data.get('locations', []):
+                                    st.markdown(f"- **{loc['name']}**: {loc['description']}")
+                                    
+                                st.markdown("#### 🎞️ المشاهد")
+                                for scene in script_data.get('scenes', []):
+                                    with st.expander(f"المشهد {scene['scene_number']} - {scene['location']}"):
+                                        st.markdown(f"**الوصف البصري:** {scene['visual_description']}")
+                                        st.markdown(f"**الحوار:** {scene['dialogue']}")
+                                        full_dialogue += scene['dialogue'] + " "
+                                
+                                st.download_button("⬇️ تحميل السيناريو (JSON)", 
+                                                   data=json.dumps(script_data, ensure_ascii=False, indent=4),
+                                                   file_name="script.json", mime="application/json")
                     except Exception as e:
                         st.error(f"وقع شي مشكل فـ السيناريو: {e}")
             
@@ -201,7 +224,7 @@ with tab1:
                         {full_dialogue}
                         """
                         
-                        # توليد الصوت
+                        # توليد الصوت (هادا النموذج ديال الصوت ثابت ومستقر)
                         response = client.models.generate_content(
                             model="gemini-2.0-flash", 
                             contents=tts_instruction,
