@@ -428,7 +428,7 @@ with tab5:
                                 p_type_str = str(p_type).lower()
                                 p_name_lower = p_name.lower()
                                 
-                                # 1. تجاهل معاملات الملفات تماماً (هذا هو الحل)
+                                # 1. تجاهل معاملات الملفات تماماً
                                 if "filedata" in p_type_str or "file" in p_type_str:
                                     continue
                                 
@@ -456,7 +456,7 @@ with tab5:
                                 elif "string" in p_type_str or (isinstance(p_type, dict) and p_type.get("type") == "string"):
                                     kwargs[p_name] = ""
                                 
-                                # 4. خانات الأرقام (تجنب 0.0 وتعيين القيم الافتراضية)
+                                # 4. خانات الأرقام (توفير قيم افتراضية لكل شيء)
                                 elif "number" in p_type_str or (isinstance(p_type, dict) and p_type.get("type") == "number"):
                                     if "step" in p_name_lower:
                                         kwargs[p_name] = 8
@@ -470,6 +470,12 @@ with tab5:
                                         kwargs[p_name] = 30
                                     elif "seed" in p_name_lower:
                                         kwargs[p_name] = -1
+                                    elif "latent_shift" in p_name_lower:
+                                        kwargs[p_name] = 0.0
+                                    elif "latent_rescale" in p_name_lower:
+                                        kwargs[p_name] = 1.0
+                                    elif "normalization_db" in p_name_lower:
+                                        kwargs[p_name] = 0.0
                                     else:
                                         kwargs[p_name] = 1
                                 
