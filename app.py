@@ -61,6 +61,13 @@ def load_persistent_data():
             saved_model = data.get("gemini_model", "")
             st.session_state.gemini_model = saved_model if saved_model else DEFAULT_GEMINI_MODEL
             
+            # --- استرجاع إعدادات الفيديو واللغة ---
+            st.session_state.aspect_ratio = data.get("aspect_ratio", "9:16 (ريلز/تيك توك)")
+            st.session_state.quality = data.get("quality", "1080p")
+            st.session_state.max_duration = data.get("max_duration", 60)
+            st.session_state.language = data.get("language", "الدارجة المغربية")
+            st.session_state.tone = data.get("tone", "الكوميدية")
+            
             main_audio_path = os.path.join(AUDIO_DIR, "main_voice.wav")
             if os.path.exists(main_audio_path):
                 with open(main_audio_path, "rb") as f:
@@ -88,6 +95,13 @@ def save_persistent_data():
             "pixabay_api_key": st.session_state.get("pixabay_api_key_input", DEFAULT_PIXABAY_API_KEY),
             "hf_api_key": st.session_state.get("hf_api_key_input", ""),
             "gemini_model": st.session_state.get("gemini_model_input", DEFAULT_GEMINI_MODEL),
+            
+            # --- حفظ إعدادات الفيديو واللغة ---
+            "aspect_ratio": st.session_state.get("aspect_ratio_input", "9:16 (ريلز/تيك توك)"),
+            "quality": st.session_state.get("quality_input", "1080p"),
+            "max_duration": st.session_state.get("max_duration_input", 60),
+            "language": st.session_state.get("language_input", "الدارجة المغربية"),
+            "tone": st.session_state.get("tone_input", "الكوميدية"),
         }
         with open(STATE_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
@@ -108,7 +122,7 @@ def clear_all_data():
     st.session_state.clear()
     st.rerun()
 
-# --- تهيئة الذاكرة ---
+# --- تهيئة الذاكرة الافتراضية ---
 if 'script_data' not in st.session_state: st.session_state.script_data = None
 if 'full_audio_bytes' not in st.session_state: st.session_state.full_audio_bytes = None
 if 'background_music_bytes' not in st.session_state: st.session_state.background_music_bytes = None
@@ -118,6 +132,13 @@ if 'acestep_api_key' not in st.session_state: st.session_state.acestep_api_key =
 if 'pixabay_api_key' not in st.session_state: st.session_state.pixabay_api_key = DEFAULT_PIXABAY_API_KEY
 if 'hf_api_key' not in st.session_state: st.session_state.hf_api_key = ""
 if 'gemini_model' not in st.session_state: st.session_state.gemini_model = DEFAULT_GEMINI_MODEL
+
+# قيم افتراضية للإعدادات باش ما يوقعش خطأ
+if 'aspect_ratio' not in st.session_state: st.session_state.aspect_ratio = "9:16 (ريلز/تيك توك)"
+if 'quality' not in st.session_state: st.session_state.quality = "1080p"
+if 'max_duration' not in st.session_state: st.session_state.max_duration = 60
+if 'language' not in st.session_state: st.session_state.language = "الدارجة المغربية"
+if 'tone' not in st.session_state: st.session_state.tone = "الكوميدية"
 
 if not st.session_state.get('data_loaded', False):
     load_persistent_data()
@@ -172,9 +193,6 @@ def search_sfxmint(query):
 with st.sidebar:
     st.header("⚙️ الإعدادات العامة")
     gemini_api_key = st.text_input("1. Google Gemini API Key (ضروري):", value=st.session_state.saved_api_key, type="password", key="gemini_api_key_input")
-    if gemini_api_key != st.session_state.saved_api_key:
-        st.session_state.saved_api_key = gemini_api_key
-        save_persistent_data()
     
     gemini_model_input = st.text_input("2. Gemini Model Name:", value=st.session_state.gemini_model, key="gemini_model_input", help="مثال: gemini-3.5-flash-lite")
     
@@ -182,51 +200,76 @@ with st.sidebar:
         gemini_model_input = DEFAULT_GEMINI_MODEL
         st.session_state.gemini_model = DEFAULT_GEMINI_MODEL
         
-    if gemini_model_input != st.session_state.gemini_model:
-        st.session_state.gemini_model = gemini_model_input
-        save_persistent_data()
-
     acestep_api_key = st.text_input("3. ACE Music API Key (مجاني):", value=st.session_state.acestep_api_key, type="password", key="acestep_api_key_input")
-    if acestep_api_key != st.session_state.acestep_api_key:
-        st.session_state.acestep_api_key = acestep_api_key
-        save_persistent_data()
 
     hf_api_key = st.text_input("4. Hugging Face API Key (اختياري):", value=st.session_state.hf_api_key, type="password", key="hf_api_key_input")
-    if hf_api_key != st.session_state.hf_api_key:
-        st.session_state.hf_api_key = hf_api_key
-        save_persistent_data()
     
     st.markdown("---")
     st.subheader("🎬 إعدادات الفيديو النهائي")
-    aspect_ratio = st.selectbox("أبعاد الفيديو:", ["9:16 (ريلز/تيك توك)", "16:9 (يوتيوب)", "1:1 (مربع)", "4:5 (إنستغرام)", "4:3 (كلاسيكي)"])
-    quality = st.selectbox("جودة الفيديو:", ["1080p", "720p", "480p"])
-    max_duration = st.slider("المدة القصوى للفيديو (ثانية):", min_value=10, max_value=3600, value=60, step=10)
+    
+    # --- استعمال key باش نحفظو القيمة ---
+    aspect_ratio = st.selectbox(
+        "أبعاد الفيديو:", 
+        ["9:16 (ريلز/تيك توك)", "16:9 (يوتيوب)", "1:1 (مربع)", "4:5 (إنستغرام)", "4:3 (كلاسيكي)"],
+        index=["9:16 (ريلز/تيك توك)", "16:9 (يوتيوب)", "1:1 (مربع)", "4:5 (إنستغرام)", "4:3 (كلاسيكي)"].index(st.session_state.aspect_ratio) if st.session_state.aspect_ratio in ["9:16 (ريلز/تيك توك)", "16:9 (يوتيوب)", "1:1 (مربع)", "4:5 (إنستغرام)", "4:3 (كلاسيكي)"] else 0,
+        key="aspect_ratio_input"
+    )
+    
+    quality = st.selectbox(
+        "جودة الفيديو:", 
+        ["1080p", "720p", "480p"],
+        index=["1080p", "720p", "480p"].index(st.session_state.quality) if st.session_state.quality in ["1080p", "720p", "480p"] else 0,
+        key="quality_input"
+    )
+    
+    max_duration = st.slider(
+        "المدة القصوى للفيديو (ثانية):", 
+        min_value=10, 
+        max_value=3600, 
+        value=st.session_state.max_duration, 
+        step=10,
+        key="max_duration_input"
+    )
     
     st.markdown("---")
     st.subheader("🔑 مفاتيح مكتبات الفيديو")
+    
     pixabay_api_key = st.text_input("Pixabay API Key:", value=st.session_state.pixabay_api_key, type="password", key="pixabay_api_key_input")
-    if pixabay_api_key != st.session_state.pixabay_api_key:
-        st.session_state.pixabay_api_key = pixabay_api_key
-        save_persistent_data()
     
     st.markdown("---")
-    language = st.selectbox("اللغة/اللهجة:", [
+    
+    language_list = [
         "الدارجة المغربية", "الأمازيغية", "العربية الفصحى", 
         "المصرية", "الخليجية", "السورية", "اللبنانية", "العراقية",
         "الأردنية", "الإماراتية", "السعودية", "التونسية", "الجزائرية",
         "الإنجليزية", "الفرنسية", "الإسبانية", "الألمانية", "التركية"
-    ])
+    ]
+    language = st.selectbox(
+        "اللغة/اللهجة:", 
+        language_list,
+        index=language_list.index(st.session_state.language) if st.session_state.language in language_list else 0,
+        key="language_input"
+    )
     
-    tone = st.selectbox("الستايل (Tone):", [
+    tone_list = [
         "الكوميدية", "الأكشن والرسوم المتحركة", "الأفلام الموسيقية والرقص",
         "ما بعد الكارثة / النجاة المستقبلية", "الفانتازيا والأسطوريات",
         "الجريمة والسرقة", "التشويق", "الرعب", "الإثارة", "الدراما", "إعلاني (تجاري)"
-    ])
+    ]
+    tone = st.selectbox(
+        "الستايل (Tone):", 
+        tone_list,
+        index=tone_list.index(st.session_state.tone) if st.session_state.tone in tone_list else 0,
+        key="tone_input"
+    )
     
     st.markdown("---")
     st.subheader("🗑️ إدارة الذاكرة")
     if st.button("مسح كل البيانات والبدء من جديد", type="primary"):
         clear_all_data()
+        
+    # --- الحفظ التلقائي ملي كيتبدل شي حاجة فالسيدبار ---
+    save_persistent_data()
 
 # --- التابات ---
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
@@ -287,13 +330,13 @@ with tab1:
         generate_btn = st.button("📝 تحليل السيناريو فقط (بدون توليد صوت)", use_container_width=True)
 
     if generate_btn:
-        if not gemini_api_key:
+        if not st.session_state.get("gemini_api_key_input"):
             st.error("عافاك دخل Google Gemini API Key.")
         else:
             full_dialogue = ""
             try:
                 with st.spinner("جاري تحليل السيناريو واستخراج المؤثرات الصوتية..."):
-                    client = genai.Client(api_key=gemini_api_key)
+                    client = genai.Client(api_key=st.session_state.gemini_api_key_input)
                     
                     current_model = st.session_state.gemini_model.strip() if st.session_state.gemini_model else ""
                     models_to_try = []
@@ -306,7 +349,6 @@ with tab1:
                     
                     for model_name in models_to_try:
                         try:
-                            # اختبار سريع للتأكد من أن النموذج يعمل
                             client.models.generate_content(
                                 model=model_name, 
                                 contents="Hi", 
@@ -507,7 +549,7 @@ with tab3:
                         
                         full_audio_clip = AudioFileClip(audio_path)
                         audio_duration = full_audio_clip.duration
-                        actual_duration = min(audio_duration, max_duration)
+                        actual_duration = min(audio_duration, st.session_state.max_duration)
                         voiceover_clip = full_audio_clip.subclipped(0, actual_duration)
                         
                         audio_tracks = [voiceover_clip]
@@ -540,8 +582,8 @@ with tab3:
                             aspect_map = {"9:16 (ريلز/تيك توك)": (1080, 1920), "16:9 (يوتيوب)": (1920, 1080), "1:1 (مربع)": (1080, 1080), "4:5 (إنستغرام)": (1080, 1350), "4:3 (كلاسيكي)": (1440, 1080)}
                             quality_map = {"480p": 480, "720p": 720, "1080p": 1080}
                             
-                            target_h = quality_map[quality]
-                            target_w = int(target_h * aspect_map[aspect_ratio][0] / aspect_map[aspect_ratio][1])
+                            target_h = quality_map[st.session_state.quality]
+                            target_w = int(target_h * aspect_map[st.session_state.aspect_ratio][0] / aspect_map[st.session_state.aspect_ratio][1])
                             
                             video_clips = []
                             
@@ -674,14 +716,14 @@ with tab5:
     
     if music_option == "توليد موسيقى بالذكاء الاصطناعي (Google Lyria)":
         st.info("ملاحظة: خدمة Lyria 3 قد تكون مقطوعة مؤقتاً (Error 429).")
-        if not gemini_api_key:
+        if not st.session_state.get("gemini_api_key_input"):
             st.warning("⚠️ عافاك دخل Google Gemini API Key.")
         else:
             music_prompt = st.text_area("وصف الموسيقى:", height=100)
             if st.button("🎵 توليد الموسيقى (Lyria)", use_container_width=True):
                 with st.spinner("جاري التوليد..."):
                     try:
-                        client = genai.Client(api_key=gemini_api_key)
+                        client = genai.Client(api_key=st.session_state.gemini_api_key_input)
                         response = client.models.generate_content(
                             model="lyria-3-clip-preview", 
                             contents=music_prompt
