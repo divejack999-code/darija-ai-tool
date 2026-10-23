@@ -48,7 +48,7 @@ def load_persistent_data():
             st.session_state.gemini_model = data.get("gemini_model", DEFAULT_GEMINI_MODEL)
             st.session_state.aspect_ratio = data.get("aspect_ratio", "9:16 (ريلز/تيك توك)")
             st.session_state.quality = data.get("quality", "1080p")
-            st.session_state.max_duration = data.get("max_duration", 120) # غيرنا الافتراضي لـ 120
+            st.session_state.max_duration = data.get("max_duration", 120)
             st.session_state.language = data.get("language", "الدارجة المغربية")
             st.session_state.tone = data.get("tone", "الكوميدية")
             
@@ -167,6 +167,28 @@ def search_sfxmint(query):
         pass
     return None
 
+# --- دالة جديدة لتوليد الصوت مع إعادة المحاولة ---
+def generate_audio_with_retry(client, model_name, prompt, voice_name, max_retries=3):
+    for attempt in range(max_retries):
+        try:
+            res = client.models.generate_content(
+                model=model_name,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_modalities=["AUDIO"],
+                    speech_config=types.SpeechConfig(voice_config=types.VoiceConfig(prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=voice_name)))
+                )
+            )
+            return res
+        except Exception as e:
+            if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                wait_time = 10 * (attempt + 1) # 10, 20, 30 ثانية
+                st.warning(f"⚠️ تم الوصول للحد الأقصى للطلبات. جاري إعادة المحاولة بعد {wait_time} ثانية... (المحاولة {attempt+1}/{max_retries})")
+                time.sleep(wait_time)
+            else:
+                raise e
+    raise Exception("فشلت جميع محاولات توليد الصوت بسبب تجاوز الحد الأقصى للطلبات.")
+
 # --- الشريط الجانبي (الإعدادات العامة) ---
 with st.sidebar:
     st.header("⚙️ الإعدادات العامة")
@@ -223,8 +245,6 @@ if st.session_state.current_step == 1:
             with st.spinner("جاري تحليل السيناريو واستخراج المؤثرات..."):
                 try:
                     client = genai.Client(api_key=st.session_state.gemini_api_key_input)
-                    # (هنا نفس منطق التوليد اللي درناه قبل، مع الـ Fallback)
-                    # ... (اختصاراً للوقت، نفس كود التوليد السابق)
                     prompt = f"""أنت كاتب سيناريوهات ومهندس صوت سينمائي. كتب سيناريو فيديو باللهجة {language} على {topic if topic else custom_script}.
                     رجع JSON فقط: {{"title":"عنوان", "scenes":[{{"scene_number":1, "location":"مكان", "visual_description":"وصف", "search_keyword":"english keywords", "sfx_keywords":["wind", "footsteps"], "dialogue":"الحوار"}}]}}"""
                     
@@ -262,25 +282,28 @@ elif st.session_state.current_step == 2:
                 for scene in st.session_state.script_data['scenes']:
                     scene_num = scene['scene_number']
                     if str(scene_num) not in st.session_state.scene_assets or 'audio_path' not in st.session_state.scene_assets[str(scene_num)]:
-                        res = client.models.generate_content(
-                            model="gemini-3.8-flash-tts",
-                            contents=f"اقرأ باللهجة {st.session_state.language}: {scene['dialogue']}",
-                            config=types.GenerateContentConfig(
-                                response_modalities=["AUDIO"],
-                                speech_config=types.SpeechConfig(voice_config=types.VoiceConfig(prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name="Fenrir")))
-                            )
+                        # استخدام النموذج الأخف والأكثر استقراراً مع نظام إعادة المحاولة
+                        res = generate_audio_with_retry(
+                            client=client,
+                            model_name="gemini-3.8-flash-lite-tts",
+                            prompt=f"اقرأ باللهجة {st.session_state.language}: {scene['dialogue']}",
+                            voice_name="Fenrir"
                         )
-                        audio_data = res.candidates[0].content.parts[0].inline_data.data
                         
-                        # حفظ الصوت فـ ملف مؤقت
-                        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
-                            tmp.write(audio_data)
-                            audio_path = tmp.name
+                        if res.candidates and res.candidates[0].content.parts and res.candidates[0].content.parts[0].inline_data:
+                            audio_data = res.candidates[0].content.parts[0].inline_data.data
                             
-                        st.session_state.scene_assets[str(scene_num)] = {
-                            **st.session_state.scene_assets.get(str(scene_num), {}),
-                            "audio_path": audio_path
-                        }
+                            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+                                tmp.write(audio_data)
+                                audio_path = tmp.name
+                                
+                            st.session_state.scene_assets[str(scene_num)] = {
+                                **st.session_state.scene_assets.get(str(scene_num), {}),
+                                "audio_path": audio_path
+                            }
+                        else:
+                            st.error(f"فشل توليد صوت المشهد {scene_num}. قد يكون النص فارغًا أو غير صالح.")
+                            st.stop()
                 st.success("✅ الأصوات جاهزة!")
             except Exception as e:
                 st.error(f"خطأ: {e}")
