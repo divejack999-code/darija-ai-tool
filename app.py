@@ -14,6 +14,7 @@ from moviepy import ImageClip, AudioFileClip, concatenate_videoclips, VideoFileC
 from docx import Document
 from google import genai
 from google.genai import types
+from gradio_client import Client # جديد: باش نستعملو مساحات Hugging Face
 
 # --- إعدادات الواجهة ---
 st.set_page_config(page_title="AI Studio Pro: Darija & Amazigh", page_icon="🎬", layout="wide")
@@ -210,7 +211,7 @@ def generate_audio_with_retry(client, model_name, prompt, voice_name, max_retrie
                 time.sleep(wait_time)
             else:
                 raise e
-    raise Exception("فشلت جميع محاولات توليد الصوت بسبب تجاوز الحد الأقصى للطلبات.")
+    raise Exception("فشلت جميع محاولات توليد الصوت.")
 
 # --- الشريط الجانبي (الإعدادات العامة) ---
 with st.sidebar:
@@ -370,13 +371,8 @@ elif st.session_state.current_step == 3:
             for i, selected_vid in enumerate(st.session_state.scene_assets[scene_num]["selected_videos"]):
                 col1, col2 = st.columns([4, 1])
                 with col1:
-                    try:
-                        # التصحيح: استعمال io.BytesIO باش Streamlit يقراه
-                        headers = {"User-Agent": "Mozilla/5.0"}
-                        vid_data = requests.get(selected_vid['preview_url'], headers=headers, timeout=10).content
-                        st.video(io.BytesIO(vid_data))
-                    except:
-                        st.warning("تعذر تحميل المعاينة.")
+                    st.video(selected_vid['preview_url']) # جربنا الفيديو ديريكت
+                    st.markdown(f"**[🔗 رابط الفيديو المختار]({selected_vid['preview_url']})**") # الرابط المباشر
                 with col2:
                     if st.button("❌ حذف", key=f"del_{scene_num}_{i}"):
                         st.session_state.scene_assets[scene_num]["selected_videos"].pop(i)
@@ -400,20 +396,57 @@ elif st.session_state.current_step == 3:
             cols = st.columns(min(len(options), 3)) 
             for i, opt in enumerate(options):
                 with cols[i % 3]:
-                    try:
-                        # التصحيح هنا أيضاً
-                        headers = {"User-Agent": "Mozilla/5.0"}
-                        vid_data = requests.get(opt['preview_url'], headers=headers, timeout=10).content
-                        st.video(io.BytesIO(vid_data))
-                    except:
-                        st.warning("تعذر تحميل المعاينة.")
-                    
+                    st.video(opt['preview_url']) # الفيديو ديريكت
+                    st.markdown(f"**[🔗 رابط الفيديو المباشر]({opt['preview_url']})**") # الرابط المباشر
                     st.caption(f"المصدر: {opt['source']}")
                     if st.button(f"➕ إضافة للمشهد", key=f"add_{scene_num}_{i}"):
                         st.session_state.scene_assets[scene_num]["selected_videos"].append(opt)
                         st.success("تمت الإضافة!")
                         time.sleep(0.5)
                         st.rerun()
+
+        st.write("### 🤖 توليد فيديو بالذكاء الاصطناعي (AI):")
+        st.write("إذا لم يعجبك أي مقطع، يمكنك توليد فيديو بالذكاء الاصطناعي مباشرة من وصف المشهد.")
+        
+        if st.button(f"🤖 توليد فيديو بالـ AI للمشهد {scene_num}", key=f"ai_{scene_num}"):
+            with st.spinner("جاري توليد الفيديو بالذكاء الاصطناعي... قد يستغرق بضع دقائق..."):
+                try:
+                    # نستعملو مساحة Hugging Face مجانية (LTX-Video) للتوليد
+                    hf_client = Client("Lightricks/LTX-Video")
+                    
+                    # نستخرجو البرومبت من الوصف البصري
+                    ai_prompt = scene.get('visual_description', search_kw)
+                    
+                    result = hf_client.predict(
+                        prompt=ai_prompt,
+                        negative_prompt="low quality, blurry, distorted",
+                        api_name="/generate_video"
+                    )
+                    
+                    if result:
+                        # النتيجة ممكن تكون مسار ملف مؤقت فـ السيرفر
+                        with open(result, "rb") as f:
+                            ai_vid_data = f.read()
+                        
+                        # نحفظوه فـ ملف باش نستعملوه فـ التركيب النهائي
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_ai_vid:
+                            tmp_ai_vid.write(ai_vid_data)
+                            ai_vid_path = tmp_ai_vid.name
+                        
+                        # نضيفوه للخيارات
+                        st.session_state.scene_assets[scene_num]["selected_videos"].append({
+                            "preview_url": ai_vid_path,
+                            "download_url": ai_vid_path,
+                            "source": "AI Generated"
+                        })
+                        st.success("✅ تم توليد الفيديو بنجاح وإضافته للمشهد!")
+                        st.rerun()
+                    else:
+                        st.error("فشل توليد الفيديو. جرب تغيير وصف المشهد.")
+                        
+                except Exception as e:
+                    st.error(f"وقع خطأ أثناء توليد الفيديو بالذكاء الاصطناعي: {e}")
+                    st.info("ملاحظة: توليد الفيديو بالـ AI يمكن يكون بطيء أو يفشل إذا كانت المساحة المجانية مزدحمة. يمكنك تجربة زر البحث عن فيديوهات أو إضافة فيديو من جهازك.")
 
         st.markdown("---")
 
@@ -477,12 +510,17 @@ elif st.session_state.current_step == 4:
                         
                         for vid_idx, vid_info in enumerate(selected_videos):
                             video_url = vid_info['download_url'] 
-                            headers = {"User-Agent": "Mozilla/5.0"}
-                            vid_data = requests.get(video_url, headers=headers).content
-                            with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_vid:
-                                tmp_vid.write(vid_data)
-                                vid_path = tmp_vid.name
-                                temp_files.append(vid_path)
+                            
+                            # نتحققو واش الفيديو مولده AI (مسار محلي) ولا من الأنترنيت
+                            if vid_info['source'] == "AI Generated":
+                                vid_path = video_url
+                            else:
+                                headers = {"User-Agent": "Mozilla/5.0"}
+                                vid_data = requests.get(video_url, headers=headers).content
+                                with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_vid:
+                                    tmp_vid.write(vid_data)
+                                    vid_path = tmp_vid.name
+                                    temp_files.append(vid_path)
                             
                             clip = VideoFileClip(vid_path)
                             clip = clip.without_audio() 
