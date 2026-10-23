@@ -20,6 +20,7 @@ st.set_page_config(page_title="AI Studio Pro: Darija & Amazigh", page_icon="🎬
 st.title("🎬 استوديو الذكاء الاصطناعي الاحترافي")
 
 # --- المفاتيح المحفوظة (Defaults) ---
+DEFAULT_PIXABAY_API_KEY = "58178676-7dca3797f2ac366b67263077a"
 DEFAULT_ACESTEP_API_KEY = "821f692a10974eaa960316f37a9001f6"
 DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
 
@@ -42,6 +43,7 @@ def load_persistent_data():
             st.session_state.last_custom_script = data.get("last_custom_script", "")
             st.session_state.saved_api_key = data.get("gemini_api_key", "")
             st.session_state.acestep_api_key = data.get("acestep_api_key", DEFAULT_ACESTEP_API_KEY)
+            st.session_state.pixabay_api_key = data.get("pixabay_api_key", DEFAULT_PIXABAY_API_KEY)
             st.session_state.gemini_model = data.get("gemini_model", DEFAULT_GEMINI_MODEL)
             st.session_state.aspect_ratio = data.get("aspect_ratio", "9:16 (ريلز/تيك توك)")
             st.session_state.quality = data.get("quality", "1080p")
@@ -75,6 +77,7 @@ def save_persistent_data():
             "last_custom_script": st.session_state.last_custom_script,
             "gemini_api_key": st.session_state.get("gemini_api_key_input", ""),
             "acestep_api_key": st.session_state.get("acestep_api_key_input", DEFAULT_ACESTEP_API_KEY),
+            "pixabay_api_key": st.session_state.get("pixabay_api_key_input", DEFAULT_PIXABAY_API_KEY),
             "gemini_model": st.session_state.get("gemini_model_input", DEFAULT_GEMINI_MODEL),
             "aspect_ratio": st.session_state.get("aspect_ratio_input", "9:16 (ريلز/تيك توك)"),
             "quality": st.session_state.get("quality_input", "1080p"),
@@ -109,6 +112,7 @@ if 'background_music_bytes' not in st.session_state: st.session_state.background
 if 'last_custom_script' not in st.session_state: st.session_state.last_custom_script = ""
 if 'saved_api_key' not in st.session_state: st.session_state.saved_api_key = ""
 if 'acestep_api_key' not in st.session_state: st.session_state.acestep_api_key = DEFAULT_ACESTEP_API_KEY
+if 'pixabay_api_key' not in st.session_state: st.session_state.pixabay_api_key = DEFAULT_PIXABAY_API_KEY
 if 'gemini_model' not in st.session_state: st.session_state.gemini_model = DEFAULT_GEMINI_MODEL
 if 'aspect_ratio' not in st.session_state: st.session_state.aspect_ratio = "9:16 (ريلز/تيك توك)"
 if 'quality' not in st.session_state: st.session_state.quality = "1080p"
@@ -122,29 +126,52 @@ if not st.session_state.get('data_loaded', False):
     load_persistent_data()
     st.session_state.data_loaded = True
 
-# --- دوال مساعدة للبحث (بدون مفاتيح API) ---
-def search_coverr_videos(query, per_page=3):
-    """البحث في Coverr (مجاني وبدون مفتاح API)"""
+# --- دوال مساعدة للبحث ---
+def search_pixabay_videos(query, api_key, per_page=3):
+    """البحث في Pixabay (مكتبة ضخمة)"""
+    if not api_key: return None
+    url = "https://pixabay.com/api/videos/"
+    params = {"key": api_key, "q": query, "per_page": per_page, "video_type": "film", "safesearch": "true"}
+    try:
+        res = requests.get(url, params=params, timeout=10)
+        res.raise_for_status()
+        hits = res.json().get('hits', [])
+        if hits:
+            # نأخذ أول فيديو (أفضل نتيجة بحث)
+            hit = hits[0]
+            preview_url = hit['videos'].get('tiny', {}).get('url') or hit['videos'].get('small', {}).get('url') or hit['videos'].get('medium', {}).get('url')
+            download_url = hit['videos'].get('medium', {}).get('url') or hit['videos'].get('large', {}).get('url')
+            if preview_url and download_url:
+                return {
+                    "preview_url": preview_url,
+                    "download_url": download_url,
+                    "source": "Pixabay"
+                }
+    except Exception:
+        pass
+    return None
+
+def search_coverr_videos(query, per_page=1):
+    """البحث في Coverr (كاحتياطي)"""
     url = "https://api.coverr.co/videos"
     params = {"query": query, "page_size": per_page}
     try:
         res = requests.get(url, params=params, timeout=10)
         res.raise_for_status()
         hits = res.json().get('hits', [])
-        options = []
-        for hit in hits:
-            urls = hit.get('urls', {})
+        if hits:
+            urls = hits[0].get('urls', {})
             preview_url = urls.get('mp4_720') or urls.get('mp4_1080') or urls.get('mp4_download')
             download_url = urls.get('mp4_1080') or urls.get('mp4_download')
             if preview_url and download_url:
-                options.append({
+                return {
                     "preview_url": preview_url,
                     "download_url": download_url,
                     "source": "Coverr"
-                })
-        return options
+                }
     except Exception:
-        return []
+        pass
+    return None
 
 def search_sfxmint(query):
     if not query or str(query).lower() in ['n/a', 'none', 'null', '']: query = "cinematic"
@@ -190,6 +217,7 @@ with st.sidebar:
     gemini_model_input = st.text_input("2. Gemini Model Name:", value=st.session_state.gemini_model, key="gemini_model_input")
     if not gemini_model_input.strip(): gemini_model_input = DEFAULT_GEMINI_MODEL
     acestep_api_key = st.text_input("3. ACE Music API Key:", value=st.session_state.acestep_api_key, type="password", key="acestep_api_key_input")
+    pixabay_api_key = st.text_input("4. Pixabay API Key:", value=st.session_state.pixabay_api_key, type="password", key="pixabay_api_key_input")
     
     st.markdown("---")
     st.subheader(":material/movie: إعدادات الفيديو")
@@ -234,8 +262,14 @@ if st.session_state.current_step == 1:
             with st.spinner("جاري تحليل السيناريو واستخراج المؤثرات..."):
                 try:
                     client = genai.Client(api_key=st.session_state.gemini_api_key_input)
+                    # هنا السر: كنطلبو من الذكاء الاصطناعي كلمات بحث بسيطة بزاف
                     prompt = f"""أنت كاتب سيناريوهات ومهندس صوت سينمائي. كتب سيناريو فيديو باللهجة {language} على {topic if topic else custom_script}.
-                    رجع JSON فقط: {{"title":"عنوان", "scenes":[{{"scene_number":1, "location":"مكان", "visual_description":"وصف", "search_keyword":"english keywords", "sfx_keywords":["wind", "footsteps"], "dialogue":"الحوار"}}]}}"""
+                    
+                    تحذير مهم جداً: فـ كل مشهد، خاصك تعمر خانة "search_keyword" بكلمات إنجليزية بسيطة جداً (من 1 إلى 3 كلمات فقط) تصف الفيديو بوضوح. ممنوع تكتب جمل طويلة.
+                    أمثلة: "empty street", "water drop", "man walking", "dark room", "fire".
+                    
+                    رجع JSON فقط بهذا الهيكل:
+                    {{"title":"عنوان", "scenes":[{{"scene_number":1, "location":"مكان", "visual_description":"وصف", "search_keyword":"simple english keywords", "sfx_keywords":["wind", "footsteps"], "dialogue":"الحوار"}}]}}"""
                     
                     response = client.models.generate_content(model=st.session_state.gemini_model, contents=prompt, config=types.GenerateContentConfig(response_mime_type="application/json"))
                     txt = response.text.strip().replace("```json", "").replace("```", "")
@@ -314,11 +348,11 @@ elif st.session_state.current_step == 2:
             st.rerun()
 
 # ==========================================
-# الخطوة 3: جلب واختيار مقاطع الفيديو تلقائياً (بدون تدخل يدوي)
+# الخطوة 3: جلب مقاطع الفيديو تلقائياً
 # ==========================================
 elif st.session_state.current_step == 3:
     st.header(":material/video_library: 3. جلب مقاطع الفيديو تلقائياً")
-    st.info("قام الذكاء الاصطناعي باختيار الكلمات المفتاحية. جاري جلب المقاطع المناسبة تلقائياً...")
+    st.info("قام الذكاء الاصطناعي باختيار الكلمات المفتاحية. جاري جلب المقاطع المناسبة تلقائياً من مكتبة Pixabay الضخمة...")
     
     for scene in st.session_state.script_data['scenes']:
         scene_num = str(scene['scene_number'])
@@ -330,10 +364,15 @@ elif st.session_state.current_step == 3:
         # إذا لم يتم جلب فيديو بعد، قم بجلبه تلقائياً
         if 'selected_video' not in st.session_state.scene_assets[scene_num]:
             with st.spinner(f"جاري البحث عن فيديو لـ '{scene['search_keyword']}'..."):
-                options = search_coverr_videos(scene['search_keyword'])
-                if options:
-                    # نأخذ أول خيار تلقائياً
-                    st.session_state.scene_assets[scene_num]['selected_video'] = options[0]
+                # نقلبو فـ Pixabay اللول
+                video_data = search_pixabay_videos(scene['search_keyword'], st.session_state.pixabay_api_key)
+                
+                # إلا ما لقيناش، نقلبو فـ Coverr
+                if not video_data:
+                    video_data = search_coverr_videos(scene['search_keyword'])
+                
+                if video_data:
+                    st.session_state.scene_assets[scene_num]['selected_video'] = video_data
                 else:
                     st.session_state.scene_assets[scene_num]['selected_video'] = None
                     st.warning(f"لم يتم العثور على فيديو لـ '{scene['search_keyword']}'. سيتم استخدام خلفية سوداء.")
@@ -345,7 +384,7 @@ elif st.session_state.current_step == 3:
                 headers = {"User-Agent": "Mozilla/5.0"}
                 vid_data = requests.get(selected_vid['preview_url'], headers=headers, timeout=10).content
                 st.video(io.BytesIO(vid_data))
-                st.markdown(f"**[🔗 مشاهدة الفيديو]({selected_vid['preview_url']})**")
+                st.markdown(f"**[🔗 مشاهدة الفيديو المختار]({selected_vid['preview_url']})**")
                 st.caption(f"المصدر: {selected_vid['source']}")
             except:
                 st.warning("تعذر تحميل المعاينة.")
