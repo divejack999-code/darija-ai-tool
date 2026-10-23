@@ -20,7 +20,17 @@ st.title("🎬 استوديو الذكاء الاصطناعي الشامل")
 # --- المفاتيح المحفوظة (Defaults) ---
 DEFAULT_PIXABAY_API_KEY = "58178676-7dca3797f2ac366b67263077a"
 DEFAULT_ACESTEP_API_KEY = "821f692a10974eaa960316f37a9001f6"
-DEFAULT_GEMINI_MODEL = "gemini-2.5-flash" # النموذج الافتراضي الجديد
+DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite" # النموذج الافتراضي الجديد (عندو 500 طلب فاليوم)
+
+# --- قائمة النماذج البديلة (Fallback Chain) ---
+# كنبداو بالنماذج اللي عندها حصة يومية كبيرة
+FALLBACK_MODELS = [
+    "gemini-3.5-flash-lite", 
+    "gemini-3.1-flash-lite", 
+    "gemini-2.5-flash-lite",
+    "gemini-2.5-flash",
+    "gemini-1.5-flash-latest" # كخيار أخير
+]
 
 # --- إعدادات الحفظ الدائم ---
 DATA_DIR = "persistent_data"
@@ -47,7 +57,6 @@ def load_persistent_data():
             
             st.session_state.hf_api_key = data.get("hf_api_key", "")
             
-            # استرجاع النموذج المحفوظ
             saved_model = data.get("gemini_model", "")
             st.session_state.gemini_model = saved_model if saved_model else DEFAULT_GEMINI_MODEL
             
@@ -77,7 +86,7 @@ def save_persistent_data():
             "acestep_api_key": st.session_state.get("acestep_api_key_input", DEFAULT_ACESTEP_API_KEY),
             "pixabay_api_key": st.session_state.get("pixabay_api_key_input", DEFAULT_PIXABAY_API_KEY),
             "hf_api_key": st.session_state.get("hf_api_key_input", ""),
-            "gemini_model": st.session_state.get("gemini_model_input", DEFAULT_GEMINI_MODEL), # حفظ النموذج
+            "gemini_model": st.session_state.get("gemini_model_input", DEFAULT_GEMINI_MODEL),
         }
         with open(STATE_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
@@ -166,8 +175,7 @@ with st.sidebar:
         st.session_state.saved_api_key = gemini_api_key
         save_persistent_data()
     
-    # --- خانة اسم النموذج الجديدة ---
-    gemini_model_input = st.text_input("2. Gemini Model Name:", value=st.session_state.gemini_model, key="gemini_model_input", help="مثال: gemini-2.5-flash أو gemini-3.8-flash")
+    gemini_model_input = st.text_input("2. Gemini Model Name:", value=st.session_state.gemini_model, key="gemini_model_input", help="مثال: gemini-3.5-flash-lite (عندو 500 طلب فاليوم)")
     if gemini_model_input != st.session_state.gemini_model:
         st.session_state.gemini_model = gemini_model_input
         save_persistent_data()
@@ -279,46 +287,49 @@ with tab1:
             full_dialogue = ""
             try:
                 import google.generativeai as genai
+                from google.api_core.exceptions import ResourceExhausted
+                
                 with st.spinner("جاري تحليل السيناريو واستخراج المؤثرات الصوتية..."):
                     genai.configure(api_key=gemini_api_key)
                     
                     # --- نظام الحماية والتحديث التلقائي (Auto-Fallback) ---
                     current_model = st.session_state.gemini_model
-                    fallback_models = ["gemini-2.5-flash", "gemini-3.8-flash", "gemini-1.5-flash-latest", "gemini-pro"]
+                    models_to_try = [current_model] + [m for m in FALLBACK_MODELS if m != current_model]
                     
-                    res = None
-                    try:
-                        model = genai.GenerativeModel(current_model)
-                        # نجربو نولدو محتوى بسيط باش نتأكدو واش النموذج خدام
-                        test_res = model.generate_content("Test")
-                        res = model # إلا خدم، كنحتفظو بيه
-                    except Exception as e:
-                        if "404" in str(e) or "not found" in str(e).lower():
-                            st.warning(f"⚠️ النموذج '{current_model}' غير متوفر حالياً. جاري البحث التلقائي عن نموذج بديل...")
-                            for fallback in fallback_models:
-                                try:
-                                    test_model = genai.GenerativeModel(fallback)
-                                    test_model.generate_content("Test")
-                                    res = test_model
-                                    # تحديث الواجهة والذاكرة بالنموذج الجديد اللي خدم
-                                    st.session_state.gemini_model = fallback
-                                    save_persistent_data()
-                                    st.success(f"✅ تم التحديث التلقائي للنموذج إلى: {fallback}")
-                                    time.sleep(1.5) # باش المستخدم يشوف الرسالة
-                                    st.rerun() # إعادة تشغيل الصفحة باش تتحدث الخانة الجانبية
-                                    break
-                                except:
-                                    continue
-                            
-                            if res is None:
-                                st.error("❌ فشلت جميع النماذج البديلة. يرجى كتابة اسم نموذج صالح في الشريط الجانبي.")
-                                st.stop()
-                        else:
-                            raise e
+                    model = None
+                    used_model_name = None
+                    
+                    for model_name in models_to_try:
+                        try:
+                            test_model = genai.GenerativeModel(model_name)
+                            # نجربو نطلب طلب بسيط باش نتأكدو واش خدام
+                            test_model.generate_content("Hi", generation_config={"max_output_tokens": 5})
+                            model = test_model
+                            used_model_name = model_name
+                            break # إلا خدم، كنخرجو من الحلقة
+                        except ResourceExhausted:
+                            st.warning(f"⚠️ النموذج '{model_name}' وصل للحد الأقصى. جاري تجربة نموذج آخر...")
+                            continue
+                        except Exception as e:
+                            # إلا كان خطأ 404 (النموذج ماشي موجود) كنكملو للبديل
+                            if "404" in str(e) or "not found" in str(e).lower():
+                                st.warning(f"⚠️ النموذج '{model_name}' غير متوفر. جاري تجربة نموذج آخر...")
+                                continue
+                            else:
+                                raise e
+                    
+                    if model is None:
+                        st.error("❌ فشلت جميع النماذج المتاحة (إما غير متوفرة أو وصلت للحد الأقصى). يرجى المحاولة لاحقاً أو استخدام مفتاح API آخر.")
+                        st.stop()
+                    
+                    # إلا لقينا نموذج بديل خدام، كنحدثو الواجهة والذاكرة
+                    if used_model_name != st.session_state.gemini_model:
+                        st.session_state.gemini_model = used_model_name
+                        save_persistent_data()
+                        st.success(f"✅ تم التحديث التلقائي للنموذج إلى: {used_model_name}")
+                        time.sleep(1.5)
+                        st.rerun()
 
-                    # إذا وصلنا هنا، النموذج خدام (إما الأصلي أو البديل)
-                    model = res
-                    
                     if work_mode == "توليد سيناريو جديد":
                         if not topic: st.warning("عافاك كتب شي فكرة.")
                         else:
@@ -418,7 +429,7 @@ with tab1:
                         tts_instruction = f"اقرأ النص باللهجة {language}. الأسلوب: {style_prompt}. ممنوع تنطق ما بين الأقواس. النص: {full_dialogue}"
                         
                         res_tts = client.models.generate_content(
-                            model="gemini-3.8-flash-tts", # نستعملو نموذج الصوت المخصص
+                            model="gemini-3.8-flash-tts",
                             contents=tts_instruction,
                             config=types.GenerateContentConfig(
                                 response_modalities=["AUDIO"],
@@ -615,7 +626,6 @@ with tab3:
                                 st.write("🎬 كنركب الفيديو النهائي مع المؤثرات...")
                                 try:
                                     final_video = concatenate_videoclips(video_clips, method="compose", padding=-0.5)
-                                    # التأكد من أن جميع المسارات الصوتية صالحة
                                     valid_audio_tracks = [track for track in audio_tracks if track is not None]
                                     if valid_audio_tracks:
                                         final_audio = CompositeAudioClip(valid_audio_tracks)
