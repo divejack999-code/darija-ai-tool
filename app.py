@@ -329,19 +329,13 @@ with tab1:
                                 st.session_state.last_custom_script = custom_script
                                 st.success("✅ تم تحليل السيناريو!")
 
-                    # --- هادا هو الحل الجذري (Python Smart Fallback) ---
+                    # --- الحماية ببايثون (Python Fallback) ---
                     for scene in st.session_state.script_data.get('scenes', []):
                         sfx_list = scene.get('sfx_keywords', [])
-                        
-                        # إلا كان الذكاء الاصطناعي رجع كلمة وحدة، كنحولوها لليستة
-                        if isinstance(sfx_list, str):
-                            sfx_list = [sfx_list]
-                            
-                        # إلا كانت الليستة خاوية، كنستخرجو الكلمات ببايثون
+                        if isinstance(sfx_list, str): sfx_list = [sfx_list]
                         if not sfx_list or all(str(s).lower() in ['n/a', 'none', 'null', ''] for s in sfx_list):
                             sfx_list = []
                             text = (str(scene.get('visual_description','')) + " " + str(scene.get('dialogue','')) + " " + str(scene.get('search_keyword',''))).lower()
-
                             if "wind" in text or "ريح" in text: sfx_list.append("wind")
                             if "footstep" in text or "walk" in text or "مشي" in text or "خطوات" in text: sfx_list.append("footsteps")
                             if "rain" in text or "مطر" in text: sfx_list.append("rain")
@@ -350,11 +344,7 @@ with tab1:
                             if "city" in text or "street" in text or "مدينة" in text or "زنقة" in text: sfx_list.append("ambient city")
                             if "tension" in text or "suspense" in text or "توتر" in text or "قلق" in text: sfx_list.append("tension")
                             if "think" in text or "reflect" in text or "تفكير" in text or "يخاطب نفسه" in text: sfx_list.append("thinking")
-
-                            if not sfx_list:
-                                sfx_list = ["cinematic"]
-
-                        # مسح التكرار
+                            if not sfx_list: sfx_list = ["cinematic"]
                         scene['sfx_keywords'] = list(set(sfx_list))
 
             except Exception as e:
@@ -365,7 +355,6 @@ with tab1:
                 for scene in st.session_state.script_data.get('scenes', []):
                     with st.expander(f"المشهد {scene['scene_number']}"):
                         st.write(f"**البحث:** {scene.get('search_keyword', 'N/A')}")
-                        # عرض الليستة كاملة
                         st.write(f"**المؤثرات الصوتية:** {', '.join(scene.get('sfx_keywords', []))}")
                         st.write(f"**الحوار:** {scene['dialogue']}")
                         full_dialogue += scene['dialogue'] + " "
@@ -455,19 +444,22 @@ with tab3:
                         
                         audio_tracks = [voiceover_clip]
                         if st.session_state.background_music_bytes:
-                            with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_music:
-                                tmp_music.write(st.session_state.background_music_bytes)
-                                music_path = tmp_music.name
-                            
-                            music_clip = AudioFileClip(music_path)
-                            if music_clip.duration < actual_duration:
-                                loop_count = int(actual_duration / music_clip.duration) + 1
-                                music_clip = concatenate_audioclips([music_clip] * loop_count)
-                            
-                            music_clip = music_clip.subclipped(0, actual_duration)
-                            music_clip = music_clip.with_volume_scaled(0.15)
-                            audio_tracks.append(music_clip)
-                            os.remove(music_path)
+                            try:
+                                with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_music:
+                                    tmp_music.write(st.session_state.background_music_bytes)
+                                    music_path = tmp_music.name
+                                
+                                music_clip = AudioFileClip(music_path)
+                                if music_clip.duration < actual_duration:
+                                    loop_count = int(actual_duration / music_clip.duration) + 1
+                                    music_clip = concatenate_audioclips([music_clip] * loop_count)
+                                
+                                music_clip = music_clip.subclipped(0, actual_duration)
+                                music_clip = music_clip.with_volume_scaled(0.15)
+                                audio_tracks.append(music_clip)
+                                os.remove(music_path)
+                            except Exception as e:
+                                st.warning(f"⚠️ تعذر تحميل الموسيقى الخلفية: {e}")
 
                         scenes = st.session_state.script_data.get('scenes', [])
                         num_scenes = len(scenes)
@@ -519,22 +511,28 @@ with tab3:
                                             tmp_vid.write(vid_data)
                                             vid_path = tmp_vid.name
                                         
-                                        clip = VideoFileClip(vid_path)
-                                        
-                                        if clip.duration >= duration_per_scene:
-                                            clip = clip.subclipped(0, duration_per_scene)
-                                        else:
-                                            loop_count = int(duration_per_scene / clip.duration) + 1
-                                            clip = concatenate_videoclips([clip] * loop_count).subclipped(0, duration_per_scene)
-                                        
-                                        clip = clip.resized(height=target_h)
-                                        if clip.w < target_w:
-                                            clip = clip.resized(width=target_w)
-                                        clip = clip.cropped(x_center=clip.w/2, y_center=clip.h/2, width=target_w, height=target_h)
-                                        clip = clip.with_effects([vfx.FadeIn(0.5), vfx.FadeOut(0.5)])
-                                        
-                                        video_clips.append(clip)
-                                        os.remove(vid_path)
+                                        try:
+                                            clip = VideoFileClip(vid_path)
+                                            
+                                            if clip.duration >= duration_per_scene:
+                                                clip = clip.subclipped(0, duration_per_scene)
+                                            else:
+                                                loop_count = int(duration_per_scene / clip.duration) + 1
+                                                clip = concatenate_videoclips([clip] * loop_count).subclipped(0, duration_per_scene)
+                                            
+                                            clip = clip.resized(height=target_h)
+                                            if clip.w < target_w:
+                                                clip = clip.resized(width=target_w)
+                                            clip = clip.cropped(x_center=clip.w/2, y_center=clip.h/2, width=target_w, height=target_h)
+                                            clip = clip.with_effects([vfx.FadeIn(0.5), vfx.FadeOut(0.5)])
+                                            
+                                            video_clips.append(clip)
+                                        except Exception as e:
+                                            st.warning(f"⚠️ تعذر تحميل الفيديو: {e}")
+                                            clip = ColorClip(size=(target_w, target_h), color=(0,0,0), duration=duration_per_scene).with_effects([vfx.FadeIn(0.5), vfx.FadeOut(0.5)])
+                                            video_clips.append(clip)
+                                        finally:
+                                            os.remove(vid_path)
                                     else:
                                         st.warning(f"⚠️ ما لقيتش فيديو لـ '{keyword}'. غادي نستعملو خلفية سوداء.")
                                         clip = ColorClip(size=(target_w, target_h), color=(0,0,0), duration=duration_per_scene).with_effects([vfx.FadeIn(0.5), vfx.FadeOut(0.5)])
@@ -555,8 +553,6 @@ with tab3:
                                                 
                                                 sfx_clip = AudioFileClip(sfx_path)
                                                 
-                                                # باش ما يخرجوش كاملين فـ نفس اللحظة، كنأخرو كل مؤثر شوية
-                                                # مثلاً المشهد كيبدا فـ start_time، وكل مؤثر كيبدا بعد 0.5 ثانية من اللي قبلو
                                                 base_start = i * duration_per_scene
                                                 offset = idx * 0.5 
                                                 start_time = base_start + offset
@@ -568,18 +564,24 @@ with tab3:
                             
                             if video_clips:
                                 st.write("🎬 كنركب الفيديو النهائي مع المؤثرات...")
-                                final_video = concatenate_videoclips(video_clips, method="compose", padding=-0.5)
-                                final_audio = CompositeAudioClip(audio_tracks)
-                                final_video = final_video.with_audio(final_audio)
-                                
-                                output_path = "auto_generated_video.mp4"
-                                final_video.write_videofile(output_path, fps=24, codec="libx264", audio_codec="aac")
-                                
-                                st.success("✅ الفيديو الأوتوماتيكي جاهز مع المؤثرات السينمائية!")
-                                st.video(output_path)
-                                
-                                with open(output_path, "rb") as file:
-                                    st.download_button("⬇️ تحميل الفيديو", file=file, file_name="auto_generated_video.mp4", mime="video/mp4")
+                                try:
+                                    final_video = concatenate_videoclips(video_clips, method="compose", padding=-0.5)
+                                    # التأكد من أن جميع المسارات الصوتية صالحة
+                                    valid_audio_tracks = [track for track in audio_tracks if track is not None]
+                                    if valid_audio_tracks:
+                                        final_audio = CompositeAudioClip(valid_audio_tracks)
+                                        final_video = final_video.with_audio(final_audio)
+                                    
+                                    output_path = "auto_generated_video.mp4"
+                                    final_video.write_videofile(output_path, fps=24, codec="libx264", audio_codec="aac")
+                                    
+                                    st.success("✅ الفيديو الأوتوماتيكي جاهز مع المؤثرات السينمائية!")
+                                    st.video(output_path)
+                                    
+                                    with open(output_path, "rb") as file:
+                                        st.download_button("⬇️ تحميل الفيديو", file=file, file_name="auto_generated_video.mp4", mime="video/mp4")
+                                except Exception as e:
+                                    st.error(f"❌ فشل في تركيب الفيديو النهائي: {e}")
                             else:
                                 st.error("ما قدرناش نصنعو الفيديو.")
                                 
