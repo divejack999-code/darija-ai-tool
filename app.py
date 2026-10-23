@@ -14,7 +14,7 @@ from moviepy import ImageClip, AudioFileClip, concatenate_videoclips, VideoFileC
 from docx import Document
 from google import genai
 from google.genai import types
-from gradio_client import Client # جديد: باش نستعملو مساحات Hugging Face
+from streamlit_sortables import sort_items
 
 # --- إعدادات الواجهة ---
 st.set_page_config(page_title="AI Studio Pro: Darija & Amazigh", page_icon="🎬", layout="wide")
@@ -143,13 +143,8 @@ def search_pixabay_videos(query, api_key, per_page=6):
         for hit in hits:
             preview_url = hit['videos'].get('tiny', {}).get('url') or hit['videos'].get('small', {}).get('url') or hit['videos'].get('medium', {}).get('url')
             download_url = hit['videos'].get('medium', {}).get('url') or hit['videos'].get('large', {}).get('url')
-            
             if preview_url and download_url:
-                options.append({
-                    "preview_url": preview_url,
-                    "download_url": download_url,
-                    "source": "Pixabay"
-                })
+                options.append({"preview_url": preview_url, "download_url": download_url, "source": "Pixabay"})
         return options
     except Exception:
         return []
@@ -167,11 +162,7 @@ def search_coverr_videos(query, per_page=3):
             preview_url = urls.get('mp4_720') or urls.get('mp4_1080') or urls.get('mp4_download')
             download_url = urls.get('mp4_1080') or urls.get('mp4_download')
             if preview_url and download_url:
-                options.append({
-                    "preview_url": preview_url,
-                    "download_url": download_url,
-                    "source": "Coverr"
-                })
+                options.append({"preview_url": preview_url, "download_url": download_url, "source": "Coverr"})
         return options
     except Exception:
         return []
@@ -207,29 +198,47 @@ def generate_audio_with_retry(client, model_name, prompt, voice_name, max_retrie
         except Exception as e:
             if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
                 wait_time = 10 * (attempt + 1)
-                st.warning(f"⚠️ تم الوصول للحد الأقصى للطلبات. جاري إعادة المحاولة بعد {wait_time} ثانية... (المحاولة {attempt+1}/{max_retries})")
+                st.warning(f"⚠️ تم الوصول للحد الأقصى للطلبات. جاري إعادة المحاولة بعد {wait_time} ثانية...")
                 time.sleep(wait_time)
             else:
                 raise e
     raise Exception("فشلت جميع محاولات توليد الصوت.")
 
+# --- دالة توليد الفيديو بالذكاء الاصطناعي (Pollinations) ---
+def generate_ai_video(prompt, duration=5):
+    """
+    توليد فيديو بالذكاء الاصطناعي باستعمال Pollinations AI (مجاني وبدون مفتاح).
+    """
+    encoded_prompt = requests.utils.quote(prompt)
+    # استخدام نموذج seedance (سريع ومجاني)
+    url = f"https://gen.pollinations.ai/video/{encoded_prompt}?model=seedance&duration={duration}"
+    
+    try:
+        # Pollinations بيرجع ملف MP4 ديريكت
+        res = requests.get(url, timeout=60) # مهلة طويلة حيت التوليد كياخد وقت
+        if res.status_code == 200 and 'video' in res.headers.get('Content-Type', ''):
+            return res.content # نرجعو البيانات الخام
+        else:
+            return None
+    except Exception:
+        return None
+
 # --- الشريط الجانبي (الإعدادات العامة) ---
 with st.sidebar:
-    st.header("⚙️ الإعدادات العامة")
+    st.header(":material/settings: الإعدادات العامة")
     gemini_api_key = st.text_input("1. Google Gemini API Key:", value=st.session_state.saved_api_key, type="password", key="gemini_api_key_input")
     gemini_model_input = st.text_input("2. Gemini Model Name:", value=st.session_state.gemini_model, key="gemini_model_input")
     if not gemini_model_input.strip(): gemini_model_input = DEFAULT_GEMINI_MODEL
     acestep_api_key = st.text_input("3. ACE Music API Key:", value=st.session_state.acestep_api_key, type="password", key="acestep_api_key_input")
-    hf_api_key = st.text_input("4. Hugging Face API Key:", value=st.session_state.hf_api_key, type="password", key="hf_api_key_input")
     
     st.markdown("---")
-    st.subheader("🎬 إعدادات الفيديو")
+    st.subheader(":material/movie: إعدادات الفيديو")
     aspect_ratio = st.selectbox("أبعاد الفيديو:", ["9:16 (ريلز/تيك توك)", "16:9 (يوتيوب)", "1:1 (مربع)", "4:5 (إنستغرام)", "4:3 (كلاسيكي)"], index=["9:16 (ريلز/تيك توك)", "16:9 (يوتيوب)", "1:1 (مربع)", "4:5 (إنستغرام)", "4:3 (كلاسيكي)"].index(st.session_state.aspect_ratio) if st.session_state.aspect_ratio in ["9:16 (ريلز/تيك توك)", "16:9 (يوتيوب)", "1:1 (مربع)", "4:5 (إنستغرام)", "4:3 (كلاسيكي)"] else 0, key="aspect_ratio_input")
     quality = st.selectbox("جودة الفيديو:", ["1080p", "720p", "480p"], index=["1080p", "720p", "480p"].index(st.session_state.quality) if st.session_state.quality in ["1080p", "720p", "480p"] else 0, key="quality_input")
     max_duration = st.slider("المدة القصوى للفيديو (ثانية):", 10, 3600, st.session_state.max_duration, 10, key="max_duration_input")
     
     st.markdown("---")
-    st.subheader("🔑 مفاتيح الفيديو")
+    st.subheader(":material/key: مفاتيح الفيديو")
     pixabay_api_key = st.text_input("Pixabay API Key:", value=st.session_state.pixabay_api_key, type="password", key="pixabay_api_key_input")
     
     st.markdown("---")
@@ -239,7 +248,7 @@ with st.sidebar:
     tone = st.selectbox("الستايل (Tone):", tone_list, index=tone_list.index(st.session_state.tone) if st.session_state.tone in tone_list else 0, key="tone_input")
     
     st.markdown("---")
-    if st.button("🗑️ مسح كل البيانات والبدء من جديد", type="primary"):
+    if st.button(":material/delete: مسح كل البيانات والبدء من جديد", type="primary"):
         clear_all_data()
         
     save_persistent_data()
@@ -252,7 +261,7 @@ st.write(f"**الخطوة {st.session_state.current_step} من 4**")
 # الخطوة 1: السيناريو
 # ==========================================
 if st.session_state.current_step == 1:
-    st.header("1. توليد السيناريو")
+    st.header(":material/description: 1. توليد السيناريو")
     work_mode = st.radio("كيفاش بغيتي تخدم السيناريو؟", ["توليد سيناريو جديد", "لدي سيناريو جاهز (لصق)"], horizontal=True)
     
     if work_mode == "توليد سيناريو جديد":
@@ -262,7 +271,7 @@ if st.session_state.current_step == 1:
         custom_script = st.text_area("لصق السيناريو ديالك هنا:", height=150, value=st.session_state.last_custom_script)
         topic = ""
 
-    if st.button("🚀 توليد/تحليل السيناريو", use_container_width=True, type="primary"):
+    if st.button(":material/rocket_launch: توليد/تحليل السيناريو", use_container_width=True, type="primary"):
         if not st.session_state.gemini_api_key_input:
             st.error("عافاك دخل Google Gemini API Key.")
         else:
@@ -283,12 +292,12 @@ if st.session_state.current_step == 1:
     if st.session_state.script_data:
         st.subheader(f"🎬 {st.session_state.script_data.get('title')}")
         for scene in st.session_state.script_data.get('scenes', []):
-            with st.expander(f"المشهد {scene['scene_number']}"):
+            with st.expander(f":material/movie: المشهد {scene['scene_number']}"):
                 st.write(f"**البحث:** {scene.get('search_keyword')}")
                 st.write(f"**المؤثرات:** {', '.join(scene.get('sfx_keywords', []))}")
                 st.write(f"**الحوار:** {scene['dialogue']}")
                 
-        if st.button("✅ التالي: توليد الأصوات", type="primary"):
+        if st.button(":material/arrow_forward: التالي: توليد الأصوات", type="primary"):
             st.session_state.current_step = 2
             st.rerun()
 
@@ -296,10 +305,10 @@ if st.session_state.current_step == 1:
 # الخطوة 2: توليد الأصوات
 # ==========================================
 elif st.session_state.current_step == 2:
-    st.header("2. توليد الأصوات (لكل مشهد)")
+    st.header(":material/record_voice_over: 2. توليد الأصوات (لكل مشهد)")
     st.info("غادي نولدوا صوت لكل مشهد بوحدو، هادشي غادي يضمن التزامن المثالي.")
     
-    if st.button("🎙️ توليد الأصوات", type="primary"):
+    if st.button(":material/mic: توليد الأصوات", type="primary"):
         with st.spinner("جاري توليد الأصوات..."):
             try:
                 client = genai.Client(api_key=st.session_state.gemini_api_key_input)
@@ -340,11 +349,11 @@ elif st.session_state.current_step == 2:
 
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("⬅️ السابق: السيناريو"):
+        if st.button(":material/arrow_back: السابق: السيناريو"):
             st.session_state.current_step = 1
             st.rerun()
     with col2:
-        if st.button("✅ التالي: جلب الفيديوهات", type="primary"):
+        if st.button(":material/arrow_forward: التالي: جلب الفيديوهات", type="primary"):
             st.session_state.current_step = 3
             st.rerun()
 
@@ -352,12 +361,12 @@ elif st.session_state.current_step == 2:
 # الخطوة 3: جلب واختيار مقاطع الفيديو (محدث ومصحح)
 # ==========================================
 elif st.session_state.current_step == 3:
-    st.header("3. اختيار مقاطع الفيديو")
+    st.header(":material/video_library: 3. اختيار مقاطع الفيديو")
     st.info("جاري جلب مقاطع فيديو مقترحة لكل مشهد. يمكنك اختيار المقطع الذي يعجبك، أو إضافة أكثر من مقطع للمشهد الواحد.")
     
     for scene in st.session_state.script_data['scenes']:
         scene_num = str(scene['scene_number'])
-        st.subheader(f"المشهد {scene_num}: {scene['location']}")
+        st.subheader(f":material/movie: المشهد {scene_num}: {scene['location']}")
         
         if scene_num not in st.session_state.scene_assets:
             st.session_state.scene_assets[scene_num] = {"selected_videos": [], "video_options": []}
@@ -368,20 +377,38 @@ elif st.session_state.current_step == 3:
         if not st.session_state.scene_assets[scene_num]["selected_videos"]:
             st.warning("لم يتم اختيار أي مقطع بعد. سيتم استخدام خلفية سوداء.")
         else:
-            for i, selected_vid in enumerate(st.session_state.scene_assets[scene_num]["selected_videos"]):
+            # إعادة الترتيب باستعمال streamlit-sortables
+            selected_vids = st.session_state.scene_assets[scene_num]["selected_videos"]
+            items = [f"{i+1}. {vid['source']}" for i, vid in enumerate(selected_vids)]
+            
+            sorted_items = sort_items(items, key=f"sort_{scene_num}")
+            
+            # تحديث الترتيب بناءً على السحب والإفلات
+            new_order = []
+            for item in sorted_items:
+                idx = int(item.split('.')[0]) - 1
+                new_order.append(selected_vids[idx])
+            st.session_state.scene_assets[scene_num]["selected_videos"] = new_order
+            
+            for i, selected_vid in enumerate(new_order):
                 col1, col2 = st.columns([4, 1])
                 with col1:
-                    st.video(selected_vid['preview_url']) # جربنا الفيديو ديريكت
-                    st.markdown(f"**[🔗 رابط الفيديو المختار]({selected_vid['preview_url']})**") # الرابط المباشر
+                    try:
+                        headers = {"User-Agent": "Mozilla/5.0"}
+                        vid_data = requests.get(selected_vid['preview_url'], headers=headers, timeout=10).content
+                        st.video(io.BytesIO(vid_data))
+                        st.markdown(f"**[🔗 مشاهدة الفيديو]({selected_vid['preview_url']})**")
+                    except:
+                        st.warning("تعذر تحميل المعاينة.")
                 with col2:
-                    if st.button("❌ حذف", key=f"del_{scene_num}_{i}"):
+                    if st.button(":material/delete: حذف", key=f"del_{scene_num}_{i}"):
                         st.session_state.scene_assets[scene_num]["selected_videos"].pop(i)
                         st.rerun()
 
         st.write("### إضافة مقاطع جديدة:")
         search_kw = st.text_input(f"كلمة البحث للمشهد {scene_num}:", value=scene.get('search_keyword', ''), key=f"kw_{scene_num}")
         
-        if st.button(f"🔍 بحث عن فيديوهات للمشهد {scene_num}", key=f"search_{scene_num}"):
+        if st.button(f":material/search: بحث عن فيديوهات للمشهد {scene_num}", key=f"search_{scene_num}"):
             with st.spinner("جاري البحث..."):
                 options = search_pixabay_videos(search_kw, st.session_state.pixabay_api_key)
                 if not options: 
@@ -396,10 +423,16 @@ elif st.session_state.current_step == 3:
             cols = st.columns(min(len(options), 3)) 
             for i, opt in enumerate(options):
                 with cols[i % 3]:
-                    st.video(opt['preview_url']) # الفيديو ديريكت
-                    st.markdown(f"**[🔗 رابط الفيديو المباشر]({opt['preview_url']})**") # الرابط المباشر
+                    try:
+                        headers = {"User-Agent": "Mozilla/5.0"}
+                        vid_data = requests.get(opt['preview_url'], headers=headers, timeout=10).content
+                        st.video(io.BytesIO(vid_data))
+                        st.markdown(f"**[🔗 مشاهدة الفيديو]({opt['preview_url']})**")
+                    except:
+                        st.warning("تعذر تحميل المعاينة.")
+                    
                     st.caption(f"المصدر: {opt['source']}")
-                    if st.button(f"➕ إضافة للمشهد", key=f"add_{scene_num}_{i}"):
+                    if st.button(f":material/add: إضافة للمشهد", key=f"add_{scene_num}_{i}"):
                         st.session_state.scene_assets[scene_num]["selected_videos"].append(opt)
                         st.success("تمت الإضافة!")
                         time.sleep(0.5)
@@ -408,32 +441,17 @@ elif st.session_state.current_step == 3:
         st.write("### 🤖 توليد فيديو بالذكاء الاصطناعي (AI):")
         st.write("إذا لم يعجبك أي مقطع، يمكنك توليد فيديو بالذكاء الاصطناعي مباشرة من وصف المشهد.")
         
-        if st.button(f"🤖 توليد فيديو بالـ AI للمشهد {scene_num}", key=f"ai_{scene_num}"):
+        if st.button(f":material/auto_awesome: توليد فيديو بالـ AI للمشهد {scene_num}", key=f"ai_{scene_num}"):
             with st.spinner("جاري توليد الفيديو بالذكاء الاصطناعي... قد يستغرق بضع دقائق..."):
                 try:
-                    # نستعملو مساحة Hugging Face مجانية (LTX-Video) للتوليد
-                    hf_client = Client("Lightricks/LTX-Video")
-                    
-                    # نستخرجو البرومبت من الوصف البصري
                     ai_prompt = scene.get('visual_description', search_kw)
+                    ai_vid_data = generate_ai_video(ai_prompt, duration=5)
                     
-                    result = hf_client.predict(
-                        prompt=ai_prompt,
-                        negative_prompt="low quality, blurry, distorted",
-                        api_name="/generate_video"
-                    )
-                    
-                    if result:
-                        # النتيجة ممكن تكون مسار ملف مؤقت فـ السيرفر
-                        with open(result, "rb") as f:
-                            ai_vid_data = f.read()
-                        
-                        # نحفظوه فـ ملف باش نستعملوه فـ التركيب النهائي
+                    if ai_vid_data:
                         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_ai_vid:
                             tmp_ai_vid.write(ai_vid_data)
                             ai_vid_path = tmp_ai_vid.name
                         
-                        # نضيفوه للخيارات
                         st.session_state.scene_assets[scene_num]["selected_videos"].append({
                             "preview_url": ai_vid_path,
                             "download_url": ai_vid_path,
@@ -446,17 +464,16 @@ elif st.session_state.current_step == 3:
                         
                 except Exception as e:
                     st.error(f"وقع خطأ أثناء توليد الفيديو بالذكاء الاصطناعي: {e}")
-                    st.info("ملاحظة: توليد الفيديو بالـ AI يمكن يكون بطيء أو يفشل إذا كانت المساحة المجانية مزدحمة. يمكنك تجربة زر البحث عن فيديوهات أو إضافة فيديو من جهازك.")
 
         st.markdown("---")
 
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("⬅️ السابق: الأصوات"):
+        if st.button(":material/arrow_back: السابق: الأصوات"):
             st.session_state.current_step = 2
             st.rerun()
     with col2:
-        if st.button("✅ التالي: التركيب النهائي", type="primary"):
+        if st.button(":material/arrow_forward: التالي: التركيب النهائي", type="primary"):
             st.session_state.current_step = 4
             st.rerun()
 
@@ -464,9 +481,9 @@ elif st.session_state.current_step == 3:
 # الخطوة 4: التركيب النهائي
 # ==========================================
 elif st.session_state.current_step == 4:
-    st.header("4. التركيب النهائي")
+    st.header(":material/movie_edit: 4. التركيب النهائي")
     
-    if st.button("🎬 بدء التركيب النهائي", type="primary"):
+    if st.button(":material/play_circle: بدء التركيب النهائي", type="primary"):
         with st.spinner("جاري تركيب الفيديو النهائي... (هادشي كياخد وقت)"):
             temp_files = []
             try:
@@ -511,7 +528,6 @@ elif st.session_state.current_step == 4:
                         for vid_idx, vid_info in enumerate(selected_videos):
                             video_url = vid_info['download_url'] 
                             
-                            # نتحققو واش الفيديو مولده AI (مسار محلي) ولا من الأنترنيت
                             if vid_info['source'] == "AI Generated":
                                 vid_path = video_url
                             else:
@@ -584,7 +600,7 @@ elif st.session_state.current_step == 4:
                 st.success("✅ الفيديو النهائي جاهز!")
                 st.video(output_path)
                 with open(output_path, "rb") as file:
-                    st.download_button("⬇️ تحميل الفيديو", data=file, file_name="final_output.mp4", mime="video/mp4")
+                    st.download_button(":material/download: تحميل الفيديو", data=file, file_name="final_output.mp4", mime="video/mp4")
 
             except Exception as e:
                 st.error(f"وقع مشكل: {e}")
@@ -594,6 +610,6 @@ elif st.session_state.current_step == 4:
                         if os.path.exists(f): os.remove(f)
                     except: pass
 
-    if st.button("⬅️ السابق: الفيديوهات"):
+    if st.button(":material/arrow_back: السابق: الفيديوهات"):
         st.session_state.current_step = 3
         st.rerun()
