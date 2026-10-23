@@ -7,3 +7,4 @@ numpy
 requests
 python-docx
 gradio_client
+streamlit-sortables
