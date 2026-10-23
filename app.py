@@ -41,7 +41,6 @@ def load_persistent_data():
             saved_acestep = data.get("acestep_api_key", "")
             st.session_state.acestep_api_key = saved_acestep if saved_acestep else DEFAULT_ACESTEP_API_KEY
             
-            # تحميل مفتاح Pixabay المحفوظ
             saved_pixabay = data.get("pixabay_api_key", "")
             st.session_state.pixabay_api_key = saved_pixabay if saved_pixabay else DEFAULT_PIXABAY_API_KEY
             
@@ -96,7 +95,6 @@ if not st.session_state.get('data_loaded', False):
 
 # --- دوال مساعدة للبحث عن الفيديو ---
 def search_pixabay_videos(query, api_key, per_page=3):
-    """البحث في Pixabay عن فيديوهات"""
     if not api_key: return None
     url = "https://pixabay.com/api/videos/"
     params = {
@@ -111,7 +109,6 @@ def search_pixabay_videos(query, api_key, per_page=3):
         res.raise_for_status()
         hits = res.json().get('hits', [])
         if hits:
-            # اختيار أفضل جودة متاحة (large أو medium)
             video_url = hits[0].get('videos', {}).get('large', {}).get('url')
             if not video_url:
                 video_url = hits[0].get('videos', {}).get('medium', {}).get('url')
@@ -121,7 +118,6 @@ def search_pixabay_videos(query, api_key, per_page=3):
     return None
 
 def search_coverr_videos(query, per_page=1):
-    """البحث في Coverr عن فيديوهات (احتياطي)"""
     url = "https://api.coverr.co/videos"
     params = {"query": query, "page_size": per_page}
     try:
@@ -130,7 +126,6 @@ def search_coverr_videos(query, per_page=1):
         data = res.json()
         hits = data.get('hits', [])
         if hits:
-            # Coverr يرجع روابط في urls
             urls = hits[0].get('urls', {})
             video_url = urls.get('mp4_download') or urls.get('mp4_1080') or urls.get('mp4_720')
             return video_url
@@ -173,15 +168,27 @@ with st.sidebar:
     st.subheader("🔑 مفاتيح مكتبات الفيديو")
     st.info("Pixabay مفتاح مجاني ومسموح للاستخدام التجاري. Coverr يعمل كاحتياطي بدون مفتاح.")
     
-    # هنا كنعرضو المفتاح ديال Pixabay اللي عطيتيني
     pixabay_api_key = st.text_input("Pixabay API Key:", value=st.session_state.pixabay_api_key, type="password", key="pixabay_api_key_input")
     if pixabay_api_key != st.session_state.pixabay_api_key:
         st.session_state.pixabay_api_key = pixabay_api_key
         save_persistent_data()
     
     st.markdown("---")
-    language = st.selectbox("اللغة/اللهجة:", ["الدارجة المغربية", "الأمازيغية", "العربية الفصحى", "الإنجليزية", "الفرنسية"])
-    tone = st.selectbox("الستايل (Tone):", ["الكوميدية", "الدرامية", "التشويق", "الرعب", "إعلاني (تجاري)"])
+    
+    # --- قائمة اللغات واللهجات كاملة ---
+    language = st.selectbox("اللغة/اللهجة:", [
+        "الدارجة المغربية", "الأمازيغية", "العربية الفصحى", 
+        "المصرية", "الخليجية", "السورية", "اللبنانية", "العراقية",
+        "الأردنية", "الإماراتية", "السعودية", "التونسية", "الجزائرية",
+        "الإنجليزية", "الفرنسية", "الإسبانية", "الألمانية", "التركية"
+    ])
+    
+    # --- قائمة الستايلات كاملة ---
+    tone = st.selectbox("الستايل (Tone):", [
+        "الكوميدية", "الأكشن والرسوم المتحركة", "الأفلام الموسيقية والرقص",
+        "ما بعد الكارثة / النجاة المستقبلية", "الفانتازيا والأسطوريات",
+        "الجريمة والسرقة", "التشويق", "الرعب", "الإثارة", "الدراما", "إعلاني (تجاري)"
+    ])
     
     st.markdown("---")
     st.subheader("🗑️ إدارة الذاكرة")
@@ -227,7 +234,19 @@ with tab1:
         available_voices = {
             "Fenrir (Excitable - Male)": "Fenrir", "Puck (Upbeat - Male)": "Puck",
             "Zephyr (Bright - Female)": "Zephyr", "Kore (Firm - Female)": "Kore",
-            "Charon (Informative - Male)": "Charon", "Leda (Youthful - Female)": "Leda"
+            "Charon (Informative - Male)": "Charon", "Leda (Youthful - Female)": "Leda",
+            "Orus (Firm - Male)": "Orus", "Aoede (Breezy - Female)": "Aoede",
+            "Callirrhoe (Easy-going - Female)": "Callirrhoe", "Autonoe (Bright - Female)": "Autonoe",
+            "Enceladus (Breathy - Male)": "Enceladus", "Iapetus (Clear - Male)": "Iapetus",
+            "Umbriel (Easy-going - Male)": "Umbriel", "Algieba (Smooth - Male)": "Algieba",
+            "Despina (Smooth - Female)": "Despina", "Erinome (Clear - Female)": "Erinome",
+            "Algenib (Gravelly - Male)": "Algenib", "Rasalgethi (Informative - Male)": "Rasalgethi",
+            "Laomedeia (Upbeat - Female)": "Laomedeia", "Achernar (Soft - Female)": "Achernar",
+            "Alnilam (Firm - Male)": "Alnilam", "Schedar (Even - Male)": "Schedar",
+            "Gacrux (Mature - Female)": "Gacrux", "Pulcherrima (Forward - Female)": "Pulcherrima",
+            "Achird (Friendly - Male)": "Achird", "Zubenelgenubi (Casual - Male)": "Zubenelgenubi",
+            "Vindemiatrix (Gentle - Female)": "Vindemiatrix", "Sadachbia (Lively - Male)": "Sadachbia",
+            "Sadaltager (Knowledgeable - Male)": "Sadaltager", "Sulafat (Warm - Female)": "Sulafat"
         }
         with voice_col1:
             selected_voice_label = st.selectbox("اختار الصوت:", list(available_voices.keys()))
@@ -363,7 +382,6 @@ with tab3:
             else:
                 with st.spinner("جاري البحث، التحميل، والتجميع... هادشي ممكن ياخد شي دقيقة."):
                     try:
-                        # 1. تحضير الصوت وقصه إذا كان أطول من المدة القصوى
                         with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_audio:
                             tmp_audio.write(st.session_state.full_audio_bytes)
                             audio_path = tmp_audio.name
@@ -382,7 +400,6 @@ with tab3:
                         else:
                             duration_per_scene = actual_duration / num_scenes
                             
-                            # 2. إعدادات الأبعاد من الشريط الجانبي
                             aspect_map = {
                                 "9:16 (ريلز/تيك توك)": (1080, 1920), 
                                 "16:9 (يوتيوب)": (1920, 1080), 
@@ -397,7 +414,6 @@ with tab3:
                             
                             video_clips = []
                             
-                            # 3. معالجة كل مشهد
                             if video_source == "رفع صور خاصة بي":
                                 for i, img_file in enumerate(uploaded_images[:num_scenes]): 
                                     with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_img:
@@ -420,10 +436,8 @@ with tab3:
                                     st.write(f"🔍 كنقلب على مشهد {i+1}: '{keyword}'...")
                                     
                                     video_url = None
-                                    # البحث في Pixabay أولاً
                                     if st.session_state.pixabay_api_key:
                                         video_url = search_pixabay_videos(keyword, st.session_state.pixabay_api_key)
-                                    # إذا لم نجد، نبحث في Coverr
                                     if not video_url:
                                         video_url = search_coverr_videos(keyword)
                                     
@@ -441,7 +455,6 @@ with tab3:
                                             loop_count = int(duration_per_scene / clip.duration) + 1
                                             clip = concatenate_videoclips([clip] * loop_count).subclipped(0, duration_per_scene)
                                         
-                                        # تغيير الأبعاد بشكل احترافي (Crop + Resize)
                                         clip = clip.resized(height=target_h)
                                         if clip.w < target_w:
                                             clip = clip.resized(width=target_w)
@@ -454,7 +467,6 @@ with tab3:
                                         clip = ColorClip(size=(target_w, target_h), color=(0,0,0), duration=duration_per_scene)
                                         video_clips.append(clip)
                             
-                            # 4. تجميع الفيديو النهائي
                             if video_clips:
                                 st.write("🎬 كنركب الفيديو النهائي...")
                                 final_video = concatenate_videoclips(video_clips, method="compose")
