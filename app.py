@@ -55,7 +55,7 @@ def load_persistent_data():
             st.session_state.current_step = data.get("current_step", 1)
             st.session_state.scene_assets = data.get("scene_assets", {})
             st.session_state.voice_mode = data.get("voice_mode", "توليد الصوت بالذكاء الاصطناعي (لكل مشهد)")
-            st.session_state.sfx_mode = data.get("sfx_mode", "البحث في المكتبة المجانية (SFXMint)")
+            st.session_state.sfx_mode = data.get("sfx_mode", "توليد بالذكاء الاصطناعي (Hugging Face)")
             
             main_audio_path = os.path.join(AUDIO_DIR, "main_voice.wav")
             if os.path.exists(main_audio_path):
@@ -90,7 +90,7 @@ def save_persistent_data():
             "current_step": st.session_state.get("current_step", 1),
             "scene_assets": st.session_state.get("scene_assets", {}),
             "voice_mode": st.session_state.get("voice_mode", "توليد الصوت بالذكاء الاصطناعي (لكل مشهد)"),
-            "sfx_mode": st.session_state.get("sfx_mode", "البحث في المكتبة المجانية (SFXMint)")
+            "sfx_mode": st.session_state.get("sfx_mode", "توليد بالذكاء الاصطناعي (Hugging Face)")
         }
         with open(STATE_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
@@ -127,7 +127,7 @@ if 'tone' not in st.session_state: st.session_state.tone = "الكوميدية"
 if 'current_step' not in st.session_state: st.session_state.current_step = 1
 if 'scene_assets' not in st.session_state: st.session_state.scene_assets = {}
 if 'voice_mode' not in st.session_state: st.session_state.voice_mode = "توليد الصوت بالذكاء الاصطناعي (لكل مشهد)"
-if 'sfx_mode' not in st.session_state: st.session_state.sfx_mode = "البحث في المكتبة المجانية (SFXMint)"
+if 'sfx_mode' not in st.session_state: st.session_state.sfx_mode = "توليد بالذكاء الاصطناعي (Hugging Face)"
 
 if not st.session_state.get('data_loaded', False):
     load_persistent_data()
@@ -169,35 +169,25 @@ def search_coverr_videos(query, per_page=1):
         pass
     return None
 
-# --- دالة SFXMint المصححة ---
 def search_sfxmint(query):
-    if not query or str(query).lower() in ['n/a', 'none', 'null', '']:
-        query = "cinematic"
-    
+    if not query or str(query).lower() in ['n/a', 'none', 'null', '']: query = "cinematic"
     url = "https://sfxmint.com/api/v1/search"
     params = {"q": query, "limit": 1}
     try:
         res = requests.get(url, params=params, timeout=10)
         res.raise_for_status()
         data = res.json()
-        
-        results = []
-        if isinstance(data, dict):
-            results = data.get('results', [])
-        elif isinstance(data, list):
-            results = data
-            
-        if results and len(results) > 0:
-            first_item = results[0]
-            if isinstance(first_item, dict):
-                return first_item.get('audio_url') or first_item.get('preview_url')
-            elif isinstance(first_item, str):
-                return first_item
+        results = data.get('results', []) if isinstance(data, dict) else data if isinstance(data, list) else []
+        if results:
+            first = results[0]
+            if isinstance(first, dict):
+                return first.get('audio_url') or first.get('preview_url')
+            elif isinstance(first, str):
+                return first
     except Exception:
         pass
     return None
 
-# --- دالة توليد المؤثرات بالذكاء الاصطناعي (Hugging Face) ---
 def generate_ai_sfx(prompt, duration=2):
     try:
         client = Client("surn-unlimitedmusicgen.hf.space")
@@ -206,7 +196,6 @@ def generate_ai_sfx(prompt, duration=2):
             duration=duration,
             api_name="/predict"
         )
-        
         if result and isinstance(result, tuple) and len(result) > 0:
             audio_path = result[0]
             if os.path.exists(audio_path):
@@ -237,7 +226,7 @@ def generate_audio_with_retry(client, model_name, prompt, voice_name, max_retrie
                 raise e
     raise Exception("فشلت جميع محاولات توليد الصوت.")
 
-# --- الشريط الجانبي ---
+# --- الشريط الجانبي (الإعدادات العامة) ---
 with st.sidebar:
     st.header(":material/settings: الإعدادات العامة")
     gemini_api_key = st.text_input("1. Google Gemini API Key:", value=st.session_state.saved_api_key, type="password", key="gemini_api_key_input")
@@ -394,12 +383,12 @@ elif st.session_state.current_step == 3:
     st.header(":material/graphic_eq: 3. المؤثرات الصوتية (SFX)")
     
     sfx_mode = st.radio("🎛️ طريقة الحصول على المؤثرات الصوتية:", 
-                        ["البحث في المكتبة المجانية (SFXMint)", "توليد بالذكاء الاصطناعي (Hugging Face)"], 
+                        ["توليد بالذكاء الاصطناعي (Hugging Face)", "البحث في المكتبة المجانية (SFXMint)"], 
                         horizontal=True)
     st.session_state.sfx_mode = sfx_mode
     
     if st.button(":material/search: جلب المؤثرات الصوتية", type="primary"):
-        with st.spinner("جاري جلب المؤثرات الصوتية..."):
+        with st.spinner("جاري جلب/توليد المؤثرات الصوتية..."):
             for scene in st.session_state.script_data['scenes']:
                 scene_num = str(scene['scene_number'])
                 sfx_list = scene.get('sfx_keywords', [])
@@ -416,7 +405,7 @@ elif st.session_state.current_step == 3:
                         if sfx_url:
                             scene_assets['sfx_urls'].append({"keyword": sfx_kw, "url": sfx_url, "source": "SFXMint"})
                         else:
-                            st.warning(f"لم يتم العثور على مؤثر لـ '{sfx_kw}'.")
+                            st.warning(f"لم يتم العثور على مؤثر لـ '{sfx_kw}' فـ SFXMint.")
                     else:
                         sfx_data = generate_ai_sfx(sfx_kw, duration=2)
                         if sfx_data:
@@ -425,7 +414,7 @@ elif st.session_state.current_step == 3:
                                 sfx_path = tmp.name
                             scene_assets['sfx_urls'].append({"keyword": sfx_kw, "url": sfx_path, "source": "AI"})
                         else:
-                            st.warning(f"فشل توليد المؤثر لـ '{sfx_kw}'.")
+                            st.warning(f"فشل توليد المؤثر لـ '{sfx_kw}' بالذكاء الاصطناعي.")
             st.success("✅ تم جلب/توليد المؤثرات!")
             st.rerun()
 
@@ -545,7 +534,7 @@ elif st.session_state.current_step == 5:
         scene_num = str(scene['scene_number'])
         selected_vid = st.session_state.scene_assets[scene_num].get('selected_video')
         
-        if selected_vid:
+        if selected_vid and 'preview_url' in selected_vid:
             st.write(f"**المشهد {scene_num}:**")
             st.markdown(f"[🔗 شوف الفيديو]({selected_vid['preview_url']})")
         else:
@@ -602,7 +591,7 @@ elif st.session_state.current_step == 5:
                     
                     # الفيديو
                     selected_vid = assets.get('selected_video')
-                    if not selected_vid:
+                    if not selected_vid or 'download_url' not in selected_vid:
                         clip = ColorClip(size=(target_w, target_h), color=(0,0,0), duration=scene_duration)
                         video_clips.append(clip.with_start(current_time).with_effects([vfx.FadeIn(0.5), vfx.FadeOut(0.5)]))
                     else:
