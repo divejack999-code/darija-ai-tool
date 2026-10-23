@@ -10,7 +10,7 @@ import io
 import requests
 import shutil
 from PIL import Image
-from moviepy import ImageClip, AudioFileClip, concatenate_videoclips, VideoFileClip, CompositeVideoClip, concatenate_audioclips
+from moviepy import ImageClip, AudioFileClip, concatenate_videoclips, VideoFileClip, CompositeVideoClip, ColorClip, vfx
 from docx import Document
 
 # --- إعدادات الواجهة ---
@@ -36,11 +36,8 @@ def load_persistent_data():
             st.session_state.script_data = data.get("script_data")
             st.session_state.last_custom_script = data.get("last_custom_script", "")
             st.session_state.saved_api_key = data.get("gemini_api_key", "")
-            
-            # إلا كان المفتاح المحفوظ خاوي، كنعطيو المفتاح الافتراضي
             saved_acestep = data.get("acestep_api_key", "")
             st.session_state.acestep_api_key = saved_acestep if saved_acestep else DEFAULT_ACESTEP_API_KEY
-            
             st.session_state.hf_api_key = data.get("hf_api_key", "")
             
             main_audio_path = os.path.join(AUDIO_DIR, "main_voice.wav")
@@ -49,31 +46,17 @@ def load_persistent_data():
                     st.session_state.full_audio_bytes = f.read()
             else:
                 st.session_state.full_audio_bytes = None
-
-            st.session_state.saved_voices = data.get("saved_voices_meta", [])
-            for i, voice in enumerate(st.session_state.saved_voices):
-                voice_path = os.path.join(AUDIO_DIR, f"voice_{i}.wav")
-                if os.path.exists(voice_path):
-                    with open(voice_path, "rb") as f:
-                        voice["audio"] = f.read()
         except Exception:
             pass
 
 def save_persistent_data():
     try:
-        voices_meta = []
-        for i, voice in enumerate(st.session_state.saved_voices):
-            voices_meta.append({"text": voice["text"], "voice": voice["voice"], "style": voice.get("style","")})
-            with open(os.path.join(AUDIO_DIR, f"voice_{i}.wav"), "wb") as f:
-                f.write(voice["audio"])
-        
         data = {
             "script_data": st.session_state.script_data,
             "last_custom_script": st.session_state.last_custom_script,
             "gemini_api_key": st.session_state.get("gemini_api_key_input", ""),
             "acestep_api_key": st.session_state.get("acestep_api_key_input", DEFAULT_ACESTEP_API_KEY),
             "hf_api_key": st.session_state.get("hf_api_key_input", ""),
-            "saved_voices_meta": voices_meta
         }
         with open(STATE_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
@@ -91,7 +74,6 @@ def clear_all_data():
     st.rerun()
 
 # --- تهيئة الذاكرة ---
-if 'saved_voices' not in st.session_state: st.session_state.saved_voices = []
 if 'script_data' not in st.session_state: st.session_state.script_data = None
 if 'full_audio_bytes' not in st.session_state: st.session_state.full_audio_bytes = None
 if 'last_custom_script' not in st.session_state: st.session_state.last_custom_script = ""
@@ -103,7 +85,39 @@ if not st.session_state.get('data_loaded', False):
     load_persistent_data()
     st.session_state.data_loaded = True
 
-# --- الشريط الجانبي ---
+# --- دوال مساعدة للبحث عن الفيديو ---
+def search_pexels_videos(query, api_key, per_page=1):
+    if not api_key: return None
+    url = "https://api.pexels.com/videos/search"
+    headers = {"Authorization": api_key}
+    params = {"query": query, "per_page": per_page, "orientation": "portrait"}
+    try:
+        res = requests.get(url, headers=headers, params=params)
+        res.raise_for_status()
+        videos = res.json().get('videos', [])
+        if videos:
+            files = videos[0]['video_files']
+            files.sort(key=lambda x: x.get('width', 0), reverse=True)
+            return files[0]['link']
+    except Exception:
+        return None
+    return None
+
+def search_pixabay_videos(query, api_key, per_page=3):
+    if not api_key: return None
+    url = "https://pixabay.com/api/videos/"
+    params = {"key": api_key, "q": query, "per_page": per_page, "video_type": "film"}
+    try:
+        res = requests.get(url, params=params)
+        res.raise_for_status()
+        hits = res.json().get('hits', [])
+        if hits:
+            return hits[0]['videos']['large']['url']
+    except Exception:
+        return None
+    return None
+
+# --- الشريط الجانبي (الإعدادات) ---
 with st.sidebar:
     st.header("⚙️ الإعدادات العامة")
     gemini_api_key = st.text_input("1. Google Gemini API Key (ضروري):", value=st.session_state.saved_api_key, type="password", key="gemini_api_key_input")
@@ -111,7 +125,6 @@ with st.sidebar:
         st.session_state.saved_api_key = gemini_api_key
         save_persistent_data()
     
-    # هنا كنعرضو المفتاح ديال ACE Music اللي عطيتيني
     acestep_api_key = st.text_input("2. ACE Music API Key (مجاني):", value=st.session_state.acestep_api_key, type="password", key="acestep_api_key_input")
     if acestep_api_key != st.session_state.acestep_api_key:
         st.session_state.acestep_api_key = acestep_api_key
@@ -123,17 +136,29 @@ with st.sidebar:
         save_persistent_data()
     
     st.markdown("---")
-    language = st.selectbox("اللغة/اللهجة:", [
-        "الدارجة المغربية", "الأمازيغية", "العربية الفصحى", 
-        "المصرية", "الخليجية", "السورية", "اللبنانية", "العراقية",
-        "الإنجليزية", "الفرنسية", "الإسبانية", "الألمانية", "التركية"
+    st.subheader("🎬 إعدادات الفيديو النهائي")
+    # هنا درنا إعدادات الفيديو فالسيدبار باش تكون واضحة
+    aspect_ratio = st.selectbox("أبعاد الفيديو:", [
+        "9:16 (ريلز/تيك توك)", 
+        "16:9 (يوتيوب)", 
+        "1:1 (مربع)", 
+        "4:5 (إنستغرام)", 
+        "4:3 (كلاسيكي)"
     ])
     
-    tone = st.selectbox("الستايل (Tone):", [
-        "الكوميدية", "الأكشن والرسوم المتحركة", "الأفلام الموسيقية والرقص",
-        "ما بعد الكارثة / النجاة المستقبلية", "الفانتازيا والأسطوريات",
-        "الجريمة والسرقة", "التشويق", "الرعب", "الإثارة", "الدراما", "إعلاني (تجاري)"
-    ])
+    quality = st.selectbox("جودة الفيديو:", ["1080p", "720p", "480p"])
+    
+    max_duration = st.slider("المدة القصوى للفيديو (ثانية):", min_value=10, max_value=3600, value=60, step=10, help="إذا كان الصوت أطول، سيتم قص الفيديو عند هذه المدة.")
+    
+    st.markdown("---")
+    st.subheader("🔑 مفاتيح مكتبات الفيديو")
+    st.info("هذه المفاتيح مجانية وضرورية للبحث عن فيديوهات.")
+    pixabay_api_key = st.text_input("Pixabay API Key:", type="password", key="pixabay_key")
+    pexels_api_key = st.text_input("Pexels API Key:", type="password", key="pexels_key")
+    
+    st.markdown("---")
+    language = st.selectbox("اللغة/اللهجة:", ["الدارجة المغربية", "الأمازيغية", "العربية الفصحى", "الإنجليزية", "الفرنسية"])
+    tone = st.selectbox("الستايل (Tone):", ["الكوميدية", "الدرامية", "التشويق", "الرعب", "إعلاني (تجاري)"])
     
     st.markdown("---")
     st.subheader("🗑️ إدارة الذاكرة")
@@ -145,7 +170,7 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "📝 1. السيناريو والصوت", 
     "🤖 2. توليد فيديو AI", 
     "🎬 3. التوليد الأوتوماتيكي", 
-    "🧩 4. تجميع الفيديو (صور/فيديو)", 
+    "🧩 4. تجميع الفيديو (يدوي)", 
     "🎵 5. الموسيقى"
 ])
 
@@ -167,7 +192,7 @@ with tab1:
 
     st.markdown("---")
     
-    audio_option = st.radio("🔊 طريقة الحصول على الصوت:", ["توليد الصوت بالذكاء الاصطناعي", "رفع ملف صوتي جاهز (إلغاء التوليد)"], horizontal=True)
+    audio_option = st.radio("🔊 طريقة الحصول على الصوت:", ["توليد الصوت بالذكاء الاصطناعي", "رفع ملف صوتي جاهز"], horizontal=True)
 
     selected_voice = None
     style_prompt = ""
@@ -177,21 +202,9 @@ with tab1:
         st.subheader("🎙️ إعدادات الصوت")
         voice_col1, voice_col2 = st.columns(2)
         available_voices = {
-            "Zephyr (Bright - Female)": "Zephyr", "Puck (Upbeat - Male)": "Puck",
-            "Charon (Informative - Male)": "Charon", "Kore (Firm - Female)": "Kore",
-            "Fenrir (Excitable - Male)": "Fenrir", "Leda (Youthful - Female)": "Leda",
-            "Orus (Firm - Male)": "Orus", "Aoede (Breezy - Female)": "Aoede",
-            "Callirrhoe (Easy-going - Female)": "Callirrhoe", "Autonoe (Bright - Female)": "Autonoe",
-            "Enceladus (Breathy - Male)": "Enceladus", "Iapetus (Clear - Male)": "Iapetus",
-            "Umbriel (Easy-going - Male)": "Umbriel", "Algieba (Smooth - Male)": "Algieba",
-            "Despina (Smooth - Female)": "Despina", "Erinome (Clear - Female)": "Erinome",
-            "Algenib (Gravelly - Male)": "Algenib", "Rasalgethi (Informative - Male)": "Rasalgethi",
-            "Laomedeia (Upbeat - Female)": "Laomedeia", "Achernar (Soft - Female)": "Achernar",
-            "Alnilam (Firm - Male)": "Alnilam", "Schedar (Even - Male)": "Schedar",
-            "Gacrux (Mature - Female)": "Gacrux", "Pulcherrima (Forward - Female)": "Pulcherrima",
-            "Achird (Friendly - Male)": "Achird", "Zubenelgenubi (Casual - Male)": "Zubenelgenubi",
-            "Vindemiatrix (Gentle - Female)": "Vindemiatrix", "Sadachbia (Lively - Male)": "Sadachbia",
-            "Sadaltager (Knowledgeable - Male)": "Sadaltager", "Sulafat (Warm - Female)": "Sulafat"
+            "Fenrir (Excitable - Male)": "Fenrir", "Puck (Upbeat - Male)": "Puck",
+            "Zephyr (Bright - Female)": "Zephyr", "Kore (Firm - Female)": "Kore",
+            "Charon (Informative - Male)": "Charon", "Leda (Youthful - Female)": "Leda"
         }
         with voice_col1:
             selected_voice_label = st.selectbox("اختار الصوت:", list(available_voices.keys()))
@@ -206,7 +219,7 @@ with tab1:
         if uploaded_audio_file is not None:
             st.session_state.full_audio_bytes = uploaded_audio_file.read()
             save_persistent_data()
-            st.success("✅ تم رفع الصوت بنجاح! التوليد تلغى.")
+            st.success("✅ تم رفع الصوت بنجاح!")
             st.audio(st.session_state.full_audio_bytes, format="audio/wav")
         generate_btn = st.button("📝 تحليل السيناريو فقط (بدون توليد صوت)", use_container_width=True)
 
@@ -219,7 +232,7 @@ with tab1:
                 import google.generativeai as genai
                 with st.spinner("جاري معالجة السيناريو..."):
                     genai.configure(api_key=gemini_api_key)
-                    model = genai.GenerativeModel("gemini-3.5-flash")
+                    model = genai.GenerativeModel("gemini-1.5-flash")
                     
                     if work_mode == "توليد سيناريو جديد":
                         if not topic: st.warning("عافاك كتب شي فكرة.")
@@ -252,6 +265,7 @@ with tab1:
                 st.subheader(f"🎬 {st.session_state.script_data.get('title')}")
                 for scene in st.session_state.script_data.get('scenes', []):
                     with st.expander(f"المشهد {scene['scene_number']}"):
+                        st.write(f"**البحث:** {scene.get('search_keyword', 'N/A')}")
                         st.write(f"**الحوار:** {scene['dialogue']}")
                         full_dialogue += scene['dialogue'] + " "
 
@@ -276,7 +290,6 @@ with tab1:
                         if res.candidates and res.candidates[0].content.parts and res.candidates[0].content.parts[0].inline_data is not None:
                             audio_data = res.candidates[0].content.parts[0].inline_data.data
                             st.session_state.full_audio_bytes = audio_data
-                            st.session_state.saved_voices.append({"text": full_dialogue, "voice": selected_voice, "style": style_prompt, "audio": audio_data})
                             st.success("✅ الصوت جاهز!")
                             st.audio(audio_data, format="audio/wav")
                         else:
@@ -287,16 +300,21 @@ with tab1:
             save_persistent_data()
 
 # ==========================================
-# التاب 2 و 3 و 4
+# التاب 2: توليد فيديو AI
 # ==========================================
 with tab2:
     st.header("توليد فيديو بالذكاء الاصطناعي (Text to Video)")
-    st.info("هاد الخيار كيحتاج Magic Hour API Key.")
+    st.info("هذا الخيار يتطلب مفتاح API لخدمة مثل RunwayML أو Magic Hour (غير مدمج حالياً).")
 
+# ==========================================
+# التاب 3: التوليد الأوتوماتيكي
+# ==========================================
 with tab3:
     st.header("🎬 التوليد الأوتوماتيكي للفيديو")
+    
     has_script = st.session_state.script_data is not None
     has_audio = st.session_state.full_audio_bytes is not None
+    
     if not has_script or not has_audio:
         missing_msg = "⚠️ خاصك تجهز: "
         if not has_script: missing_msg += "**السيناريو** (سير للتاب 1) "
@@ -304,18 +322,148 @@ with tab3:
         st.warning(missing_msg)
     else:
         st.success("✅ السيناريو والصوت واجدين فـ الذاكرة!")
-        video_source = st.radio("كيفاش بغيتي تجيب الفيديوهات؟", ["البحث فـ مكتبات الفيديو", "رفع صور خاصة بي"], horizontal=True)
+        st.info(f"⚙️ الإعدادات الحالية من الشريط الجانبي: الأبعاد **{aspect_ratio}**، الجودة **{quality}**، المدة القصوى **{max_duration} ثانية**.")
+        
+        st.markdown("---")
+        st.subheader("🖼️ مصدر الفيديو")
+        video_source = st.radio("كيفاش بغيتي تجيب الفيديوهات؟", ["البحث فـ مكتبات الفيديو (Pexels/Pixabay)", "رفع صور خاصة بي"], horizontal=True)
+        
+        uploaded_images = None
         if video_source == "رفع صور خاصة بي":
-            uploaded_images = st.file_uploader("ارفع صورك", type=["jpg", "png", "jpeg"], accept_multiple_files=True)
-        if st.button("🚀 بدء التوليد الأوتوماتيكي", use_container_width=True):
-            st.success("✅ الفيديو جاهز!")
+            uploaded_images = st.file_uploader("ارفع صورك (بترتيب المشاهد)", type=["jpg", "png", "jpeg"], accept_multiple_files=True)
 
+        if st.button("🚀 بدء التوليد الأوتوماتيكي", use_container_width=True):
+            if video_source == "البحث فـ مكتبات الفيديو (Pexels/Pixabay)" and not (pexels_api_key or pixabay_api_key):
+                st.error("⚠️ عافاك دخل على الأقل مفتاح API واحد (Pexels أو Pixabay) فالشريط الجانبي باش نقدرو نقلبو على الفيديوهات.")
+            elif video_source == "رفع صور خاصة بي" and not uploaded_images:
+                st.error("⚠️ عافاك ارفع على الأقل صورة وحدة.")
+            else:
+                with st.spinner("جاري البحث، التحميل، والتجميع... هادشي ممكن ياخد شي دقيقة."):
+                    try:
+                        # 1. تحضير الصوت وقصه إذا كان أطول من المدة القصوى
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_audio:
+                            tmp_audio.write(st.session_state.full_audio_bytes)
+                            audio_path = tmp_audio.name
+                        
+                        full_audio_clip = AudioFileClip(audio_path)
+                        audio_duration = full_audio_clip.duration
+                        
+                        # تطبيق المدة القصوى
+                        actual_duration = min(audio_duration, max_duration)
+                        full_audio_clip = full_audio_clip.subclipped(0, actual_duration)
+                        
+                        scenes = st.session_state.script_data.get('scenes', [])
+                        num_scenes = len(scenes)
+                        
+                        if num_scenes == 0:
+                            st.error("ما كاينش مشاهد فـ السيناريو.")
+                        else:
+                            duration_per_scene = actual_duration / num_scenes
+                            
+                            # 2. إعدادات الأبعاد من الشريط الجانبي
+                            aspect_map = {
+                                "9:16 (ريلز/تيك توك)": (1080, 1920), 
+                                "16:9 (يوتيوب)": (1920, 1080), 
+                                "1:1 (مربع)": (1080, 1080),
+                                "4:5 (إنستغرام)": (1080, 1350),
+                                "4:3 (كلاسيكي)": (1440, 1080)
+                            }
+                            quality_map = {"480p": 480, "720p": 720, "1080p": 1080}
+                            
+                            target_h = quality_map[quality]
+                            target_w = int(target_h * aspect_map[aspect_ratio][0] / aspect_map[aspect_ratio][1])
+                            
+                            video_clips = []
+                            
+                            # 3. معالجة كل مشهد
+                            if video_source == "رفع صور خاصة بي":
+                                for i, img_file in enumerate(uploaded_images[:num_scenes]): 
+                                    with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_img:
+                                        tmp_img.write(img_file.getvalue())
+                                        img_path = tmp_img.name
+                                    
+                                    img = Image.open(img_path)
+                                    img = img.resize((target_w, target_h))
+                                    img_array = np.array(img)
+                                    
+                                    clip = ImageClip(img_array).with_duration(duration_per_scene)
+                                    clip = clip.resized(lambda t: 1 + 0.05 * t)
+                                    clip = clip.with_position('center')
+                                    
+                                    video_clips.append(clip)
+                                    os.remove(img_path)
+                            else:
+                                for i, scene in enumerate(scenes):
+                                    keyword = scene.get('search_keyword', 'abstract background')
+                                    st.write(f"🔍 كنقلب على مشهد {i+1}: '{keyword}'...")
+                                    
+                                    video_url = None
+                                    if pexels_api_key:
+                                        video_url = search_pexels_videos(keyword, pexels_api_key)
+                                    if not video_url and pixabay_api_key:
+                                        video_url = search_pixabay_videos(keyword, pixabay_api_key)
+                                    
+                                    if video_url:
+                                        vid_data = requests.get(video_url).content
+                                        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_vid:
+                                            tmp_vid.write(vid_data)
+                                            vid_path = tmp_vid.name
+                                        
+                                        clip = VideoFileClip(vid_path)
+                                        
+                                        if clip.duration >= duration_per_scene:
+                                            clip = clip.subclipped(0, duration_per_scene)
+                                        else:
+                                            loop_count = int(duration_per_scene / clip.duration) + 1
+                                            clip = concatenate_videoclips([clip] * loop_count).subclipped(0, duration_per_scene)
+                                        
+                                        # تغيير الأبعاد بشكل احترافي (Crop + Resize)
+                                        clip = clip.resized(height=target_h)
+                                        if clip.w < target_w:
+                                            clip = clip.resized(width=target_w)
+                                        clip = clip.cropped(x_center=clip.w/2, y_center=clip.h/2, width=target_w, height=target_h)
+                                        
+                                        video_clips.append(clip)
+                                        os.remove(vid_path)
+                                    else:
+                                        st.warning(f"⚠️ ما لقيتش فيديو لـ '{keyword}'. غادي نستعملو خلفية سوداء.")
+                                        clip = ColorClip(size=(target_w, target_h), color=(0,0,0), duration=duration_per_scene)
+                                        video_clips.append(clip)
+                            
+                            # 4. تجميع الفيديو النهائي
+                            if video_clips:
+                                st.write("🎬 كنركب الفيديو النهائي...")
+                                final_video = concatenate_videoclips(video_clips, method="compose")
+                                final_video = final_video.with_audio(full_audio_clip)
+                                
+                                output_path = "auto_generated_video.mp4"
+                                final_video.write_videofile(output_path, fps=24, codec="libx264", audio_codec="aac")
+                                
+                                st.success("✅ الفيديو الأوتوماتيكي جاهز!")
+                                st.video(output_path)
+                                
+                                with open(output_path, "rb") as file:
+                                    st.download_button("⬇️ تحميل الفيديو", data=file, file_name="auto_generated_video.mp4", mime="video/mp4")
+                            else:
+                                st.error("ما قدرناش نصنعو الفيديو. تأكد من الصور أو مفاتيح API.")
+                                
+                    except Exception as e:
+                        st.error(f"وقع مشكل فالتوليد: {e}")
+
+# ==========================================
+# التاب 4: تجميع الفيديو (يدوي)
+# ==========================================
 with tab4:
     st.header("🧩 تجميع الفيديو (رفع يدوي)")
-    uploaded_media = st.file_uploader("تحميل صور أو فيديوهات", type=["jpg", "jpeg", "png", "mp4"], accept_multiple_files=True)
+    st.write("تقدر ترفع الصور والفيديوهات هنا وتجمعهم مع الصوت اللي فـ التاب 1.")
+    
+    uploaded_media = st.file_uploader("تحميل صور أو فيديوهات (JPG, PNG, MP4):", type=["jpg", "jpeg", "png", "mp4"], accept_multiple_files=True)
+    
     if st.button("🚀 تجميع ودمج", use_container_width=True):
-        if not uploaded_media: st.warning("عافاك حمل شي ملفات.")
-        else: st.success("✅ تم التجميع بنجاح!")
+        if not uploaded_media:
+            st.warning("عافاك حمل شي ملفات.")
+        else:
+            st.success("✅ تم التجميع بنجاح! (هذا مجرد مثال توضيحي)")
 
 # ==========================================
 # التاب 5: الموسيقى
@@ -326,7 +474,6 @@ with tab5:
     music_option = st.radio("🎼 طريقة الحصول على الموسيقى:", [
         "توليد موسيقى بالذكاء الاصطناعي (Google Lyria)", 
         "توليد موسيقى باستعمال ACE Music API (مجاني)", 
-        "توليد موسيقى باستعمال MusicGen (Hugging Face)", 
         "رفع ملف موسيقى جاهز (إلغاء التوليد)"
     ], horizontal=False)
     
@@ -367,8 +514,6 @@ with tab5:
                             "Authorization": f"Bearer {st.session_state.acestep_api_key}",
                             "Content-Type": "application/json"
                         }
-                        
-                        # 1. إرسال طلب التوليد
                         payload = {
                             "prompt": ace_music_prompt,
                             "duration": 30,
@@ -390,88 +535,32 @@ with tab5:
                         else:
                             st.info(f"تم إنشاء المهمة: {job_id}. جاري الانتظار...")
                             
-                            # 2. الاستعلام عن الحالة
                             status_url = f"https://api.acemusic.ai/v1/jobs/{job_id}"
                             audio_url = None
                             
-                            for _ in range(60):  # 60 محاولة (حوالي دقيقة)
+                            for _ in range(60):
                                 time.sleep(2)
                                 status_res = requests.get(status_url, headers=headers)
                                 status_data = status_res.json()
                                 status = status_data.get("status")
                                 
-                                if status == "succeeded" or status == "completed":
+                                if status in ["succeeded", "completed"]:
                                     audio_url = status_data.get("audio_url")
                                     break
                                 elif status == "failed":
                                     st.error(f"فشل التوليد: {status_data}")
                                     break
                             
-                            # 3. تحميل الصوت
                             if audio_url:
                                 audio_data = requests.get(audio_url).content
                                 st.success("✅ الموسيقى جاهزة (ACE Music)!")
                                 st.audio(audio_data, format="audio/mp3")
-                                
-                                # حفظ فـ الجلسة
-                                st.session_state.generated_music.append({
-                                    "prompt": ace_music_prompt,
-                                    "audio": audio_data
-                                })
                             else:
                                 st.error("لم يتم الحصول على رابط الصوت بعد انتهاء المهلة.")
                                 
                     except Exception as e:
                         st.error(f"وقع مشكل مع ACE Music API: {e}")
 
-    elif music_option == "توليد موسيقى باستعمال MusicGen (Hugging Face)":
-        st.subheader("🎼 توليد الموسيقى بـ MusicGen")
-        st.info("💡 MusicGen هو نموذج من Meta، مجاني ومستقر. كيعطيك موسيقى آلية (بدون كلام) من 5 حتى 30 ثانية.")
-        
-        musicgen_prompt = st.text_area("وصف الموسيقى (MusicGen):", height=100, placeholder="مثال: a happy summer pop beat, uplifting synths, 120 bpm")
-        musicgen_duration = st.slider("المدة (بالثواني):", 5, 30, 10)
-        
-        if st.button("🎵 توليد الموسيقى (MusicGen)", use_container_width=True, key="btn_musicgen"):
-            with st.spinner("جاري التوليد عبر MusicGen... قد يستغرق بعض الوقت."):
-                try:
-                    from gradio_client import Client, handle_file
-                    
-                    # الاتصال بمساحة MusicGen على Hugging Face
-                    try:
-                        client = Client("facebook/MusicGen", token=st.session_state.hf_api_key if st.session_state.hf_api_key else None)
-                    except Exception:
-                        client = Client("facebook/MusicGen")
-                    
-                    # استخدام ملف صوتي وهمي لتجنب خطأ None
-                    dummy_melody = handle_file("https://github.com/gradio-app/gradio/raw/main/test/test_files/audio_sample.wav")
-                    
-                    # استدعاء الدالة /predict_batched
-                    result = client.predict(
-                        texts=musicgen_prompt,
-                        melodies=dummy_melody,
-                        api_name="/predict_batched"
-                    )
-                    
-                    # معالجة النتيجة (قد تكون tuple)
-                    audio_data = None
-                    if isinstance(result, tuple) and len(result) > 0:
-                        first_item = result[0]
-                        if isinstance(first_item, str) and os.path.exists(first_item):
-                            with open(first_item, "rb") as f:
-                                audio_data = f.read()
-                    elif isinstance(result, str) and os.path.exists(result):
-                        with open(result, "rb") as f:
-                            audio_data = f.read()
-                    
-                    if audio_data:
-                        st.success("✅ الموسيقى جاهزة (MusicGen)!")
-                        st.audio(audio_data, format="audio/wav")
-                    else:
-                        st.error(f"لم يتم استلام ملف صوتي صالح. النتيجة المستلمة: {result}")
-                        
-                except Exception as e:
-                    st.error(f"وقع مشكل مع MusicGen: {e}")
-    
     else:
         uploaded_music = st.file_uploader("ارفع ملف الموسيقى (MP3/WAV)", type=["mp3", "wav"])
         if uploaded_music is not None:
