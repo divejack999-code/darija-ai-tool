@@ -24,6 +24,7 @@ st.title("🎬 استوديو الذكاء الاصطناعي الاحترافي
 DEFAULT_PIXABAY_API_KEY = "58178676-7dca3797f2ac366b67263077a"
 DEFAULT_ACESTEP_API_KEY = "821f692a10974eaa960316f37a9001f6"
 DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
+DEFAULT_FREESOUND_API_KEY = "" # غادي تحط المفتاح ديالك هنا
 
 FALLBACK_MODELS = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-1.5-flash-latest"]
 
@@ -45,6 +46,7 @@ def load_persistent_data():
             st.session_state.saved_api_key = data.get("gemini_api_key", "")
             st.session_state.acestep_api_key = data.get("acestep_api_key", DEFAULT_ACESTEP_API_KEY)
             st.session_state.pixabay_api_key = data.get("pixabay_api_key", DEFAULT_PIXABAY_API_KEY)
+            st.session_state.freesound_api_key = data.get("freesound_api_key", DEFAULT_FREESOUND_API_KEY)
             st.session_state.gemini_model = data.get("gemini_model", DEFAULT_GEMINI_MODEL)
             st.session_state.aspect_ratio = data.get("aspect_ratio", "9:16 (ريلز/تيك توك)")
             st.session_state.quality = data.get("quality", "1080p")
@@ -55,7 +57,7 @@ def load_persistent_data():
             st.session_state.current_step = data.get("current_step", 1)
             st.session_state.scene_assets = data.get("scene_assets", {})
             st.session_state.voice_mode = data.get("voice_mode", "توليد الصوت بالذكاء الاصطناعي (لكل مشهد)")
-            st.session_state.sfx_mode = data.get("sfx_mode", "توليد بالذكاء الاصطناعي (Hugging Face)")
+            st.session_state.sfx_mode = data.get("sfx_mode", "البحث في Freesound (CC0)")
             
             main_audio_path = os.path.join(AUDIO_DIR, "main_voice.wav")
             if os.path.exists(main_audio_path):
@@ -81,6 +83,7 @@ def save_persistent_data():
             "gemini_api_key": st.session_state.get("gemini_api_key_input", ""),
             "acestep_api_key": st.session_state.get("acestep_api_key_input", DEFAULT_ACESTEP_API_KEY),
             "pixabay_api_key": st.session_state.get("pixabay_api_key_input", DEFAULT_PIXABAY_API_KEY),
+            "freesound_api_key": st.session_state.get("freesound_api_key_input", DEFAULT_FREESOUND_API_KEY),
             "gemini_model": st.session_state.get("gemini_model_input", DEFAULT_GEMINI_MODEL),
             "aspect_ratio": st.session_state.get("aspect_ratio_input", "9:16 (ريلز/تيك توك)"),
             "quality": st.session_state.get("quality_input", "1080p"),
@@ -90,7 +93,7 @@ def save_persistent_data():
             "current_step": st.session_state.get("current_step", 1),
             "scene_assets": st.session_state.get("scene_assets", {}),
             "voice_mode": st.session_state.get("voice_mode", "توليد الصوت بالذكاء الاصطناعي (لكل مشهد)"),
-            "sfx_mode": st.session_state.get("sfx_mode", "توليد بالذكاء الاصطناعي (Hugging Face)")
+            "sfx_mode": st.session_state.get("sfx_mode", "البحث في Freesound (CC0)")
         }
         with open(STATE_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
@@ -118,6 +121,7 @@ if 'last_custom_script' not in st.session_state: st.session_state.last_custom_sc
 if 'saved_api_key' not in st.session_state: st.session_state.saved_api_key = ""
 if 'acestep_api_key' not in st.session_state: st.session_state.acestep_api_key = DEFAULT_ACESTEP_API_KEY
 if 'pixabay_api_key' not in st.session_state: st.session_state.pixabay_api_key = DEFAULT_PIXABAY_API_KEY
+if 'freesound_api_key' not in st.session_state: st.session_state.freesound_api_key = DEFAULT_FREESOUND_API_KEY
 if 'gemini_model' not in st.session_state: st.session_state.gemini_model = DEFAULT_GEMINI_MODEL
 if 'aspect_ratio' not in st.session_state: st.session_state.aspect_ratio = "9:16 (ريلز/تيك توك)"
 if 'quality' not in st.session_state: st.session_state.quality = "1080p"
@@ -127,7 +131,7 @@ if 'tone' not in st.session_state: st.session_state.tone = "الكوميدية"
 if 'current_step' not in st.session_state: st.session_state.current_step = 1
 if 'scene_assets' not in st.session_state: st.session_state.scene_assets = {}
 if 'voice_mode' not in st.session_state: st.session_state.voice_mode = "توليد الصوت بالذكاء الاصطناعي (لكل مشهد)"
-if 'sfx_mode' not in st.session_state: st.session_state.sfx_mode = "توليد بالذكاء الاصطناعي (Hugging Face)"
+if 'sfx_mode' not in st.session_state: st.session_state.sfx_mode = "البحث في Freesound (CC0)"
 
 if not st.session_state.get('data_loaded', False):
     load_persistent_data()
@@ -169,21 +173,31 @@ def search_coverr_videos(query, per_page=1):
         pass
     return None
 
-def search_sfxmint(query):
-    if not query or str(query).lower() in ['n/a', 'none', 'null', '']: query = "cinematic"
-    url = "https://sfxmint.com/api/v1/search"
-    params = {"q": query, "limit": 1}
+def search_freesound(query, api_key):
+    if not api_key:
+        st.error("عافاك دخل Freesound API Key فالشريط الجانبي.")
+        return None
+    
+    url = "https://freesound.org/apiv2/search/text/"
+    params = {
+        "query": query,
+        "token": api_key,
+        "fields": "id,name,previews,license",
+        "filter": "license:\"Creative Commons 0\"",
+        "page_size": 1
+    }
     try:
         res = requests.get(url, params=params, timeout=10)
         res.raise_for_status()
         data = res.json()
-        results = data.get('results', []) if isinstance(data, dict) else data if isinstance(data, list) else []
+        results = data.get('results', [])
         if results:
             first = results[0]
-            if isinstance(first, dict):
-                return first.get('audio_url') or first.get('preview_url')
-            elif isinstance(first, str):
-                return first
+            previews = first.get('previews', {})
+            # كناخدو رابط MP3 عالي الجودة
+            audio_url = previews.get('preview-hq-mp3')
+            if audio_url:
+                return {"url": audio_url, "name": first.get('name'), "license": first.get('license')}
     except Exception:
         pass
     return None
@@ -234,6 +248,7 @@ with st.sidebar:
     if not gemini_model_input.strip(): gemini_model_input = DEFAULT_GEMINI_MODEL
     acestep_api_key = st.text_input("3. ACE Music API Key:", value=st.session_state.acestep_api_key, type="password", key="acestep_api_key_input")
     pixabay_api_key = st.text_input("4. Pixabay API Key:", value=st.session_state.pixabay_api_key, type="password", key="pixabay_api_key_input")
+    freesound_api_key = st.text_input("5. Freesound API Key (للمؤثرات):", value=st.session_state.freesound_api_key, type="password", key="freesound_api_key_input")
     
     st.markdown("---")
     st.subheader(":material/movie: إعدادات الفيديو")
@@ -383,7 +398,7 @@ elif st.session_state.current_step == 3:
     st.header(":material/graphic_eq: 3. المؤثرات الصوتية (SFX)")
     
     sfx_mode = st.radio("🎛️ طريقة الحصول على المؤثرات الصوتية:", 
-                        ["توليد بالذكاء الاصطناعي (Hugging Face)", "البحث في المكتبة المجانية (SFXMint)"], 
+                        ["البحث في Freesound (CC0)", "توليد بالذكاء الاصطناعي (Hugging Face)"], 
                         horizontal=True)
     st.session_state.sfx_mode = sfx_mode
     
@@ -400,12 +415,12 @@ elif st.session_state.current_step == 3:
                 scene_assets['sfx_urls'] = []
                 
                 for sfx_kw in sfx_list:
-                    if sfx_mode == "البحث في المكتبة المجانية (SFXMint)":
-                        sfx_url = search_sfxmint(sfx_kw)
-                        if sfx_url:
-                            scene_assets['sfx_urls'].append({"keyword": sfx_kw, "url": sfx_url, "source": "SFXMint"})
+                    if sfx_mode == "البحث في Freesound (CC0)":
+                        sfx_result = search_freesound(sfx_kw, st.session_state.freesound_api_key)
+                        if sfx_result:
+                            scene_assets['sfx_urls'].append({"keyword": sfx_kw, "url": sfx_result['url'], "source": "Freesound"})
                         else:
-                            st.warning(f"لم يتم العثور على مؤثر لـ '{sfx_kw}' فـ SFXMint.")
+                            st.warning(f"لم يتم العثور على مؤثر لـ '{sfx_kw}' فـ Freesound.")
                     else:
                         sfx_data = generate_ai_sfx(sfx_kw, duration=2)
                         if sfx_data:
