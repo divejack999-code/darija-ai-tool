@@ -18,6 +18,7 @@ st.set_page_config(page_title="AI Studio: Darija & Amazigh", page_icon="🎬", l
 st.title("🎬 استوديو الذكاء الاصطناعي الشامل")
 
 # --- المفاتيح المحفوظة (Defaults) ---
+DEFAULT_PIXABAY_API_KEY = "58178676-7dca3797f2ac366b67263077a"
 DEFAULT_ACESTEP_API_KEY = "821f692a10974eaa960316f37a9001f6"
 
 # --- إعدادات الحفظ الدائم ---
@@ -36,8 +37,14 @@ def load_persistent_data():
             st.session_state.script_data = data.get("script_data")
             st.session_state.last_custom_script = data.get("last_custom_script", "")
             st.session_state.saved_api_key = data.get("gemini_api_key", "")
+            
             saved_acestep = data.get("acestep_api_key", "")
             st.session_state.acestep_api_key = saved_acestep if saved_acestep else DEFAULT_ACESTEP_API_KEY
+            
+            # تحميل مفتاح Pixabay المحفوظ
+            saved_pixabay = data.get("pixabay_api_key", "")
+            st.session_state.pixabay_api_key = saved_pixabay if saved_pixabay else DEFAULT_PIXABAY_API_KEY
+            
             st.session_state.hf_api_key = data.get("hf_api_key", "")
             
             main_audio_path = os.path.join(AUDIO_DIR, "main_voice.wav")
@@ -56,6 +63,7 @@ def save_persistent_data():
             "last_custom_script": st.session_state.last_custom_script,
             "gemini_api_key": st.session_state.get("gemini_api_key_input", ""),
             "acestep_api_key": st.session_state.get("acestep_api_key_input", DEFAULT_ACESTEP_API_KEY),
+            "pixabay_api_key": st.session_state.get("pixabay_api_key_input", DEFAULT_PIXABAY_API_KEY),
             "hf_api_key": st.session_state.get("hf_api_key_input", ""),
         }
         with open(STATE_FILE, "w", encoding="utf-8") as f:
@@ -79,6 +87,7 @@ if 'full_audio_bytes' not in st.session_state: st.session_state.full_audio_bytes
 if 'last_custom_script' not in st.session_state: st.session_state.last_custom_script = ""
 if 'saved_api_key' not in st.session_state: st.session_state.saved_api_key = ""
 if 'acestep_api_key' not in st.session_state: st.session_state.acestep_api_key = DEFAULT_ACESTEP_API_KEY
+if 'pixabay_api_key' not in st.session_state: st.session_state.pixabay_api_key = DEFAULT_PIXABAY_API_KEY
 if 'hf_api_key' not in st.session_state: st.session_state.hf_api_key = ""
 
 if not st.session_state.get('data_loaded', False):
@@ -86,38 +95,50 @@ if not st.session_state.get('data_loaded', False):
     st.session_state.data_loaded = True
 
 # --- دوال مساعدة للبحث عن الفيديو ---
-def search_pexels_videos(query, api_key, per_page=1):
-    if not api_key: return None
-    url = "https://api.pexels.com/videos/search"
-    headers = {"Authorization": api_key}
-    params = {"query": query, "per_page": per_page, "orientation": "portrait"}
-    try:
-        res = requests.get(url, headers=headers, params=params)
-        res.raise_for_status()
-        videos = res.json().get('videos', [])
-        if videos:
-            files = videos[0]['video_files']
-            files.sort(key=lambda x: x.get('width', 0), reverse=True)
-            return files[0]['link']
-    except Exception:
-        return None
-    return None
-
 def search_pixabay_videos(query, api_key, per_page=3):
+    """البحث في Pixabay عن فيديوهات"""
     if not api_key: return None
     url = "https://pixabay.com/api/videos/"
-    params = {"key": api_key, "q": query, "per_page": per_page, "video_type": "film"}
+    params = {
+        "key": api_key, 
+        "q": query, 
+        "per_page": per_page, 
+        "video_type": "film",
+        "safesearch": "true"
+    }
     try:
-        res = requests.get(url, params=params)
+        res = requests.get(url, params=params, timeout=10)
         res.raise_for_status()
         hits = res.json().get('hits', [])
         if hits:
-            return hits[0]['videos']['large']['url']
-    except Exception:
-        return None
+            # اختيار أفضل جودة متاحة (large أو medium)
+            video_url = hits[0].get('videos', {}).get('large', {}).get('url')
+            if not video_url:
+                video_url = hits[0].get('videos', {}).get('medium', {}).get('url')
+            return video_url
+    except Exception as e:
+        print(f"Pixabay Error: {e}")
     return None
 
-# --- الشريط الجانبي (الإعدادات) ---
+def search_coverr_videos(query, per_page=1):
+    """البحث في Coverr عن فيديوهات (احتياطي)"""
+    url = "https://api.coverr.co/videos"
+    params = {"query": query, "page_size": per_page}
+    try:
+        res = requests.get(url, params=params, timeout=10)
+        res.raise_for_status()
+        data = res.json()
+        hits = data.get('hits', [])
+        if hits:
+            # Coverr يرجع روابط في urls
+            urls = hits[0].get('urls', {})
+            video_url = urls.get('mp4_download') or urls.get('mp4_1080') or urls.get('mp4_720')
+            return video_url
+    except Exception as e:
+        print(f"Coverr Error: {e}")
+    return None
+
+# --- الشريط الجانبي ---
 with st.sidebar:
     st.header("⚙️ الإعدادات العامة")
     gemini_api_key = st.text_input("1. Google Gemini API Key (ضروري):", value=st.session_state.saved_api_key, type="password", key="gemini_api_key_input")
@@ -137,7 +158,6 @@ with st.sidebar:
     
     st.markdown("---")
     st.subheader("🎬 إعدادات الفيديو النهائي")
-    # هنا درنا إعدادات الفيديو فالسيدبار باش تكون واضحة
     aspect_ratio = st.selectbox("أبعاد الفيديو:", [
         "9:16 (ريلز/تيك توك)", 
         "16:9 (يوتيوب)", 
@@ -147,14 +167,17 @@ with st.sidebar:
     ])
     
     quality = st.selectbox("جودة الفيديو:", ["1080p", "720p", "480p"])
-    
-    max_duration = st.slider("المدة القصوى للفيديو (ثانية):", min_value=10, max_value=3600, value=60, step=10, help="إذا كان الصوت أطول، سيتم قص الفيديو عند هذه المدة.")
+    max_duration = st.slider("المدة القصوى للفيديو (ثانية):", min_value=10, max_value=3600, value=60, step=10)
     
     st.markdown("---")
     st.subheader("🔑 مفاتيح مكتبات الفيديو")
-    st.info("هذه المفاتيح مجانية وضرورية للبحث عن فيديوهات.")
-    pixabay_api_key = st.text_input("Pixabay API Key:", type="password", key="pixabay_key")
-    pexels_api_key = st.text_input("Pexels API Key:", type="password", key="pexels_key")
+    st.info("Pixabay مفتاح مجاني ومسموح للاستخدام التجاري. Coverr يعمل كاحتياطي بدون مفتاح.")
+    
+    # هنا كنعرضو المفتاح ديال Pixabay اللي عطيتيني
+    pixabay_api_key = st.text_input("Pixabay API Key:", value=st.session_state.pixabay_api_key, type="password", key="pixabay_api_key_input")
+    if pixabay_api_key != st.session_state.pixabay_api_key:
+        st.session_state.pixabay_api_key = pixabay_api_key
+        save_persistent_data()
     
     st.markdown("---")
     language = st.selectbox("اللغة/اللهجة:", ["الدارجة المغربية", "الأمازيغية", "العربية الفصحى", "الإنجليزية", "الفرنسية"])
@@ -322,19 +345,19 @@ with tab3:
         st.warning(missing_msg)
     else:
         st.success("✅ السيناريو والصوت واجدين فـ الذاكرة!")
-        st.info(f"⚙️ الإعدادات الحالية من الشريط الجانبي: الأبعاد **{aspect_ratio}**، الجودة **{quality}**، المدة القصوى **{max_duration} ثانية**.")
+        st.info(f"⚙️ الإعدادات الحالية: الأبعاد **{aspect_ratio}**، الجودة **{quality}**، المدة القصوى **{max_duration} ثانية**.")
         
         st.markdown("---")
         st.subheader("🖼️ مصدر الفيديو")
-        video_source = st.radio("كيفاش بغيتي تجيب الفيديوهات؟", ["البحث فـ مكتبات الفيديو (Pexels/Pixabay)", "رفع صور خاصة بي"], horizontal=True)
+        video_source = st.radio("كيفاش بغيتي تجيب الفيديوهات؟", ["البحث فـ مكتبات الفيديو (Pixabay/Coverr)", "رفع صور خاصة بي"], horizontal=True)
         
         uploaded_images = None
         if video_source == "رفع صور خاصة بي":
             uploaded_images = st.file_uploader("ارفع صورك (بترتيب المشاهد)", type=["jpg", "png", "jpeg"], accept_multiple_files=True)
 
         if st.button("🚀 بدء التوليد الأوتوماتيكي", use_container_width=True):
-            if video_source == "البحث فـ مكتبات الفيديو (Pexels/Pixabay)" and not (pexels_api_key or pixabay_api_key):
-                st.error("⚠️ عافاك دخل على الأقل مفتاح API واحد (Pexels أو Pixabay) فالشريط الجانبي باش نقدرو نقلبو على الفيديوهات.")
+            if video_source == "البحث فـ مكتبات الفيديو (Pixabay/Coverr)" and not st.session_state.pixabay_api_key:
+                st.error("⚠️ عافاك دخل مفتاح Pixabay API فالشريط الجانبي باش نقدرو نقلبو على الفيديوهات.")
             elif video_source == "رفع صور خاصة بي" and not uploaded_images:
                 st.error("⚠️ عافاك ارفع على الأقل صورة وحدة.")
             else:
@@ -348,7 +371,6 @@ with tab3:
                         full_audio_clip = AudioFileClip(audio_path)
                         audio_duration = full_audio_clip.duration
                         
-                        # تطبيق المدة القصوى
                         actual_duration = min(audio_duration, max_duration)
                         full_audio_clip = full_audio_clip.subclipped(0, actual_duration)
                         
@@ -398,10 +420,12 @@ with tab3:
                                     st.write(f"🔍 كنقلب على مشهد {i+1}: '{keyword}'...")
                                     
                                     video_url = None
-                                    if pexels_api_key:
-                                        video_url = search_pexels_videos(keyword, pexels_api_key)
-                                    if not video_url and pixabay_api_key:
-                                        video_url = search_pixabay_videos(keyword, pixabay_api_key)
+                                    # البحث في Pixabay أولاً
+                                    if st.session_state.pixabay_api_key:
+                                        video_url = search_pixabay_videos(keyword, st.session_state.pixabay_api_key)
+                                    # إذا لم نجد، نبحث في Coverr
+                                    if not video_url:
+                                        video_url = search_coverr_videos(keyword)
                                     
                                     if video_url:
                                         vid_data = requests.get(video_url).content
