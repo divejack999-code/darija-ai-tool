@@ -512,7 +512,7 @@ with tab2:
     st.info("هذا الخيار يتطلب مفتاح API لخدمة مثل RunwayML أو Magic Hour.")
 
 # ==========================================
-# التاب 3: التوليد الأوتوماتيكي (المحسن لتوفير الذاكرة)
+# التاب 3: التوليد الأوتوماتيكي (المحسن)
 # ==========================================
 with tab3:
     st.header("🎬 التوليد الأوتوماتيكي للفيديو")
@@ -606,7 +606,6 @@ with tab3:
                                     img_array = np.array(img)
                                     
                                     clip = ImageClip(img_array).with_duration(duration_per_scene)
-                                    # تبسيط الحركة باش ما نستهلكوش الذاكرة
                                     clip = clip.with_position('center')
                                     
                                     video_clips.append(clip)
@@ -674,7 +673,6 @@ with tab3:
                                                 offset = idx * 0.5 
                                                 start_time = base_start + offset
                                                 
-                                                # تخفيف الصوت باش ما يغطيش
                                                 sfx_clip = sfx_clip.with_start(start_time).with_volume_scaled(0.5)
                                                 audio_tracks.append(sfx_clip)
                                             except Exception as e:
@@ -708,7 +706,8 @@ with tab3:
                                     st.video(output_path)
                                     
                                     with open(output_path, "rb") as file:
-                                        st.download_button("⬇️ تحميل الفيديو", file=file, file_name="auto_generated_video.mp4", mime="video/mp4")
+                                        # هنا التصحيح: استعملنا data=file بدل file=file
+                                        st.download_button("⬇️ تحميل الفيديو", data=file, file_name="auto_generated_video.mp4", mime="video/mp4")
                                 except Exception as e:
                                     st.error(f"❌ فشل في تركيب الفيديو النهائي: {e}")
                             else:
