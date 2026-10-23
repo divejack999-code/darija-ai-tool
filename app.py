@@ -10,7 +10,7 @@ import io
 import requests
 import shutil
 from PIL import Image
-from moviepy import ImageClip, AudioFileClip, concatenate_videoclips, VideoFileClip, CompositeVideoClip, ColorClip, CompositeAudioClip, concatenate_audioclips
+from moviepy import ImageClip, AudioFileClip, concatenate_videoclips, VideoFileClip, CompositeVideoClip, ColorClip, CompositeAudioClip, concatenate_audioclips, vfx
 from docx import Document
 from google import genai
 from google.genai import types
@@ -53,7 +53,7 @@ def load_persistent_data():
             
             st.session_state.current_step = data.get("current_step", 1)
             st.session_state.scene_assets = data.get("scene_assets", {})
-            st.session_state.voice_mode = data.get("voice_mode", "توليد بالذكاء الاصطناعي")
+            st.session_state.voice_mode = data.get("voice_mode", "توليد الصوت بالذكاء الاصطناعي (لكل مشهد)")
             
             main_audio_path = os.path.join(AUDIO_DIR, "main_voice.wav")
             if os.path.exists(main_audio_path):
@@ -87,7 +87,7 @@ def save_persistent_data():
             "tone": st.session_state.get("tone_input", "الكوميدية"),
             "current_step": st.session_state.get("current_step", 1),
             "scene_assets": st.session_state.get("scene_assets", {}),
-            "voice_mode": st.session_state.get("voice_mode", "توليد بالذكاء الاصطناعي")
+            "voice_mode": st.session_state.get("voice_mode", "توليد الصوت بالذكاء الاصطناعي (لكل مشهد)")
         }
         with open(STATE_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
@@ -123,13 +123,13 @@ if 'language' not in st.session_state: st.session_state.language = "الدارج
 if 'tone' not in st.session_state: st.session_state.tone = "الكوميدية"
 if 'current_step' not in st.session_state: st.session_state.current_step = 1
 if 'scene_assets' not in st.session_state: st.session_state.scene_assets = {}
-if 'voice_mode' not in st.session_state: st.session_state.voice_mode = "توليد بالذكاء الاصطناعي"
+if 'voice_mode' not in st.session_state: st.session_state.voice_mode = "توليد الصوت بالذكاء الاصطناعي (لكل مشهد)"
 
 if not st.session_state.get('data_loaded', False):
     load_persistent_data()
     st.session_state.data_loaded = True
 
-# --- دوال مساعدة للبحث ---
+# --- دوال مساعدة ---
 def search_pixabay_videos(query, api_key, per_page=3):
     if not api_key: return None
     url = "https://pixabay.com/api/videos/"
@@ -202,7 +202,7 @@ def generate_audio_with_retry(client, model_name, prompt, voice_name, max_retrie
                 raise e
     raise Exception("فشلت جميع محاولات توليد الصوت.")
 
-# --- الشريط الجانبي (الإعدادات العامة) ---
+# --- الشريط الجانبي ---
 with st.sidebar:
     st.header(":material/settings: الإعدادات العامة")
     gemini_api_key = st.text_input("1. Google Gemini API Key:", value=st.session_state.saved_api_key, type="password", key="gemini_api_key_input")
@@ -229,9 +229,9 @@ with st.sidebar:
         
     save_persistent_data()
 
-# --- عرض الخطوات (Workflow) ---
-st.progress(st.session_state.current_step / 4)
-st.write(f"**الخطوة {st.session_state.current_step} من 4**")
+# --- عرض الخطوات (Workflow 5 Steps) ---
+st.progress(st.session_state.current_step / 5)
+st.write(f"**الخطوة {st.session_state.current_step} من 5**")
 
 # ==========================================
 # الخطوة 1: السيناريو
@@ -278,12 +278,12 @@ if st.session_state.current_step == 1:
                 st.write(f"**المؤثرات:** {', '.join(scene.get('sfx_keywords', []))}")
                 st.write(f"**الحوار:** {scene['dialogue']}")
                 
-        if st.button(":material/arrow_forward: التالي: توليد الأصوات", type="primary"):
+        if st.button(":material/arrow_forward: التالي: التعليق الصوتي", type="primary"):
             st.session_state.current_step = 2
             st.rerun()
 
 # ==========================================
-# الخطوة 2: الصوت (توليد أو رفع)
+# الخطوة 2: التعليق الصوتي (توليد أو رفع)
 # ==========================================
 elif st.session_state.current_step == 2:
     st.header(":material/record_voice_over: 2. التعليق الصوتي")
@@ -348,68 +348,155 @@ elif st.session_state.current_step == 2:
             st.session_state.current_step = 1
             st.rerun()
     with col2:
-        if st.button(":material/arrow_forward: التالي: جلب الفيديوهات تلقائياً", type="primary"):
+        if st.button(":material/arrow_forward: التالي: المؤثرات الصوتية", type="primary"):
             st.session_state.current_step = 3
             st.rerun()
 
 # ==========================================
-# الخطوة 3: جلب مقاطع الفيديو تلقائياً
+# الخطوة 3: المؤثرات الصوتية (SFX)
 # ==========================================
 elif st.session_state.current_step == 3:
-    st.header(":material/video_library: 3. جلب مقاطع الفيديو تلقائياً")
-    st.info("قام الذكاء الاصطناعي باختيار الكلمات المفتاحية. جاري جلب المقاطع المناسبة تلقائياً من مكتبة Pixabay الضخمة...")
+    st.header(":material/graphic_eq: 3. المؤثرات الصوتية (SFX)")
+    st.info("الذكاء الاصطناعي كيجيب المؤثرات الصوتية المناسبة لكل مشهد. تقدر تسمعهم هنا قبل المونتاج.")
     
+    if st.button(":material/search: جلب المؤثرات الصوتية", type="primary"):
+        with st.spinner("جاري البحث عن المؤثرات الصوتية..."):
+            for scene in st.session_state.script_data['scenes']:
+                scene_num = str(scene['scene_number'])
+                sfx_list = scene.get('sfx_keywords', [])
+                
+                if scene_num not in st.session_state.scene_assets:
+                    st.session_state.scene_assets[scene_num] = {}
+                
+                scene_assets = st.session_state.scene_assets[scene_num]
+                scene_assets['sfx_urls'] = []
+                
+                for sfx_kw in sfx_list:
+                    sfx_url = search_sfxmint(sfx_kw)
+                    if sfx_url:
+                        scene_assets['sfx_urls'].append({"keyword": sfx_kw, "url": sfx_url})
+            st.success("✅ تم جلب المؤثرات!")
+            st.rerun()
+
+    # عرض المؤثرات
+    if st.session_state.scene_assets:
+        for scene in st.session_state.script_data['scenes']:
+            scene_num = str(scene['scene_number'])
+            assets = st.session_state.scene_assets.get(scene_num, {})
+            sfx_urls = assets.get('sfx_urls', [])
+            
+            if sfx_urls:
+                st.subheader(f"المشهد {scene_num}")
+                for sfx in sfx_urls:
+                    st.write(f"🔊 {sfx['keyword']}")
+                    st.audio(sfx['url'])
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button(":material/arrow_back: السابق: التعليق الصوتي"):
+            st.session_state.current_step = 2
+            st.rerun()
+    with col2:
+        if st.button(":material/arrow_forward: التالي: الموسيقى", type="primary"):
+            st.session_state.current_step = 4
+            st.rerun()
+
+# ==========================================
+# الخطوة 4: الموسيقى
+# ==========================================
+elif st.session_state.current_step == 4:
+    st.header(":material/music_note: 4. الموسيقى الخلفية")
+    
+    music_mode = st.radio("🎵 طريقة الحصول على الموسيقى:", ["توليد بالذكاء الاصطناعي (ACE Music)", "رفع ملف موسيقى جاهز"], horizontal=True)
+    
+    if music_mode == "توليد بالذكاء الاصطناعي (ACE Music)":
+        music_prompt = st.text_area("وصف الموسيقى:", placeholder="مثال: a happy summer pop beat, uplifting synths")
+        if st.button(":material/auto_awesome: توليد الموسيقى", type="primary"):
+            with st.spinner("جاري توليد الموسيقى..."):
+                try:
+                    headers = {"Authorization": f"Bearer {st.session_state.acestep_api_key}", "Content-Type": "application/json"}
+                    payload = {"prompt": music_prompt, "duration": 60, "task_type": "text2music"}
+                    
+                    res = requests.post("https://api.acemusic.ai/v1/music/generate", headers=headers, json=payload)
+                    res.raise_for_status()
+                    result = res.json()
+                    job_id = result.get("job_id") or result.get("task_id") or result.get("id")
+                    
+                    if job_id:
+                        status_url = f"https://api.acemusic.ai/v1/jobs/{job_id}"
+                        for _ in range(60):
+                            time.sleep(2)
+                            status_res = requests.get(status_url, headers=headers)
+                            status_data = status_res.json()
+                            status = status_data.get("status")
+                            
+                            if status in ["succeeded", "completed"]:
+                                audio_url = status_data.get("audio_url")
+                                if audio_url:
+                                    audio_data = requests.get(audio_url).content
+                                    st.session_state.background_music_bytes = audio_data
+                                    save_persistent_data()
+                                    st.success("✅ الموسيقى جاهزة!")
+                                    st.audio(audio_data, format="audio/mp3")
+                                break
+                            elif status == "failed":
+                                st.error("فشل التوليد.")
+                                break
+                    else:
+                        st.error("لم يتم استلام job_id.")
+                except Exception as e:
+                    st.error(f"وقع مشكل: {e}")
+                    
+    else:
+        uploaded_music = st.file_uploader("ارفع ملف الموسيقى (MP3/WAV)", type=["mp3", "wav"])
+        if uploaded_music:
+            st.session_state.background_music_bytes = uploaded_music.read()
+            save_persistent_data()
+            st.success("✅ تم رفع الموسيقى!")
+            st.audio(st.session_state.background_music_bytes)
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button(":material/arrow_back: السابق: المؤثرات الصوتية"):
+            st.session_state.current_step = 3
+            st.rerun()
+    with col2:
+        if st.button(":material/arrow_forward: التالي: المونتاج النهائي", type="primary"):
+            st.session_state.current_step = 5
+            st.rerun()
+
+# ==========================================
+# الخطوة 5: المونتاج النهائي
+# ==========================================
+elif st.session_state.current_step == 5:
+    st.header(":material/movie_edit: 5. المونتاج النهائي")
+    st.info("غادي نجيبو الفيديوهات المناسبة لكل مشهد ونركبو كلشي مع بعضياتو.")
+    
+    # جلب الفيديوهات
     for scene in st.session_state.script_data['scenes']:
         scene_num = str(scene['scene_number'])
-        st.subheader(f":material/movie: المشهد {scene_num}: {scene['location']}")
-        
         if scene_num not in st.session_state.scene_assets:
             st.session_state.scene_assets[scene_num] = {}
-        
+            
         if 'selected_video' not in st.session_state.scene_assets[scene_num]:
             with st.spinner(f"جاري البحث عن فيديو لـ '{scene['search_keyword']}'..."):
                 video_data = search_pixabay_videos(scene['search_keyword'], st.session_state.pixabay_api_key)
                 if not video_data:
                     video_data = search_coverr_videos(scene['search_keyword'])
-                
-                if video_data:
-                    st.session_state.scene_assets[scene_num]['selected_video'] = video_data
-                else:
-                    st.session_state.scene_assets[scene_num]['selected_video'] = None
-                    st.warning(f"لم يتم العثور على فيديو لـ '{scene['search_keyword']}'. سيتم استخدام خلفية سوداء.")
-        
+                st.session_state.scene_assets[scene_num]['selected_video'] = video_data
+
+    # عرض الفيديوهات اللي لقا
+    st.subheader("🎥 المقاطع اللي غادي تتستعمل:")
+    for scene in st.session_state.script_data['scenes']:
+        scene_num = str(scene['scene_number'])
         selected_vid = st.session_state.scene_assets[scene_num].get('selected_video')
-        if selected_vid:
-            try:
-                headers = {"User-Agent": "Mozilla/5.0"}
-                vid_data = requests.get(selected_vid['preview_url'], headers=headers, timeout=10).content
-                st.video(io.BytesIO(vid_data))
-                st.markdown(f"**[🔗 مشاهدة الفيديو المختار]({selected_vid['preview_url']})**")
-                st.caption(f"المصدر: {selected_vid['source']}")
-            except:
-                st.warning("تعذر تحميل المعاينة.")
-        else:
-            st.info("سيتم استخدام خلفية سوداء لهذا المشهد.")
         
-        st.markdown("---")
+        if selected_vid:
+            st.write(f"**المشهد {scene_num}:**")
+            st.markdown(f"[🔗 شوف الفيديو]({selected_vid['preview_url']})")
+        else:
+            st.warning(f"المشهد {scene_num}: ما لقيناش فيديو، غادي نستعملو خلفية سوداء.")
 
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button(":material/arrow_back: السابق: الأصوات"):
-            st.session_state.current_step = 2
-            st.rerun()
-    with col2:
-        if st.button(":material/arrow_forward: التالي: التركيب النهائي", type="primary"):
-            st.session_state.current_step = 4
-            st.rerun()
-
-# ==========================================
-# الخطوة 4: التركيب النهائي
-# ==========================================
-elif st.session_state.current_step == 4:
-    st.header(":material/movie_edit: 4. التركيب النهائي")
-    st.info("هنا غادي نركبو الفيديو مع الصوت، المؤثرات الصوتية، والموسيقى.")
-    
     if st.button(":material/play_circle: بدء التركيب النهائي", type="primary"):
         with st.spinner("جاري تركيب الفيديو النهائي... (هادشي كياخد وقت)"):
             temp_files = []
@@ -426,7 +513,7 @@ elif st.session_state.current_step == 4:
                 scenes = st.session_state.script_data['scenes']
                 num_scenes = len(scenes)
 
-                # التعامل مع الصوت المرفوع (إن وجد)
+                # التعامل مع الصوت
                 master_audio_used = False
                 if st.session_state.get("full_audio_bytes") and st.session_state.get("voice_mode") == "رفع ملف صوتي جاهز (للتعليق كامل)":
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_audio:
@@ -443,11 +530,10 @@ elif st.session_state.current_step == 4:
                     scene_num = str(scene['scene_number'])
                     assets = st.session_state.scene_assets.get(scene_num, {})
                     
-                    # --- الصوت ---
                     if not master_audio_used:
                         audio_path = assets.get('audio_path')
                         if not audio_path:
-                            st.error(f"ما كاينش صوت للمشهد {scene_num}. رجع للخطوة 2.")
+                            st.error(f"ما كاينش صوت للمشهد {scene_num}.")
                             st.stop()
                         
                         voiceover_clip = AudioFileClip(audio_path)
@@ -460,12 +546,11 @@ elif st.session_state.current_step == 4:
                         
                         audio_tracks.append(voiceover_clip.with_start(current_time))
                     
-                    # --- الفيديو ---
+                    # الفيديو
                     selected_vid = assets.get('selected_video')
-                    
                     if not selected_vid:
                         clip = ColorClip(size=(target_w, target_h), color=(0,0,0), duration=scene_duration)
-                        video_clips.append(clip.with_start(current_time))
+                        video_clips.append(clip.with_start(current_time).with_effects([vfx.FadeIn(0.5), vfx.FadeOut(0.5)]))
                     else:
                         video_url = selected_vid['download_url'] 
                         headers = {"User-Agent": "Mozilla/5.0"}
@@ -488,30 +573,25 @@ elif st.session_state.current_step == 4:
                         if clip.w < target_w: clip = clip.resized(width=target_w)
                         clip = clip.cropped(x_center=clip.w/2, y_center=clip.h/2, width=target_w, height=target_h)
                         
-                        video_clips.append(clip.with_start(current_time))
+                        video_clips.append(clip.with_start(current_time).with_effects([vfx.FadeIn(0.5), vfx.FadeOut(0.5)]))
 
-                    # --- المؤثرات الصوتية (اللي بغيتي) ---
-                    sfx_list = scene.get('sfx_keywords', [])
-                    for idx, sfx_kw in enumerate(sfx_list):
-                        st.write(f"🔊 جاري تحميل مؤثر صوتي: {sfx_kw}...")
-                        sfx_url = search_sfxmint(sfx_kw)
-                        if sfx_url:
-                            try:
-                                sfx_data = requests.get(sfx_url, timeout=10).content
-                                if b"<html" in sfx_data.lower(): continue
-                                with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_sfx:
-                                    tmp_sfx.write(sfx_data)
-                                    sfx_path = tmp_sfx.name
-                                    temp_files.append(sfx_path)
-                                sfx_clip = AudioFileClip(sfx_path)
-                                # نضيفو المؤثر مع بداية المشهد
-                                audio_tracks.append(sfx_clip.with_start(current_time + (idx * 0.5)).with_volume_scaled(0.6))
-                            except Exception as e:
-                                st.warning(f"تعذر تحميل المؤثر {sfx_kw}: {e}")
+                    # المؤثرات الصوتية
+                    sfx_urls = assets.get('sfx_urls', [])
+                    for idx, sfx in enumerate(sfx_urls):
+                        try:
+                            sfx_data = requests.get(sfx['url'], timeout=10).content
+                            with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_sfx:
+                                tmp_sfx.write(sfx_data)
+                                sfx_path = tmp_sfx.name
+                                temp_files.append(sfx_path)
+                            sfx_clip = AudioFileClip(sfx_path)
+                            audio_tracks.append(sfx_clip.with_start(current_time + (idx * 0.5)).with_volume_scaled(0.6))
+                        except Exception as e:
+                            st.warning(f"تعذر تحميل المؤثر {sfx['keyword']}: {e}")
 
                     current_time += scene_duration
 
-                # 3. الموسيقى الخلفية
+                # الموسيقى
                 if st.session_state.background_music_bytes:
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_music:
                         tmp_music.write(st.session_state.background_music_bytes)
@@ -524,7 +604,7 @@ elif st.session_state.current_step == 4:
                     music_clip = music_clip.subclipped(0, current_time).with_volume_scaled(0.15)
                     audio_tracks.append(music_clip)
 
-                # 4. التجميع
+                # التجميع
                 final_video = CompositeVideoClip(video_clips, size=(target_w, target_h))
                 final_audio = CompositeAudioClip(audio_tracks)
                 final_video = final_video.with_audio(final_audio)
@@ -548,6 +628,6 @@ elif st.session_state.current_step == 4:
                         if os.path.exists(f): os.remove(f)
                     except: pass
 
-    if st.button(":material/arrow_back: السابق: الفيديوهات"):
-        st.session_state.current_step = 3
+    if st.button(":material/arrow_back: السابق: الموسيقى"):
+        st.session_state.current_step = 4
         st.rerun()
