@@ -14,14 +14,12 @@ from moviepy import ImageClip, AudioFileClip, concatenate_videoclips, VideoFileC
 from docx import Document
 from google import genai
 from google.genai import types
-from streamlit_sortables import sort_items
 
 # --- إعدادات الواجهة ---
 st.set_page_config(page_title="AI Studio Pro: Darija & Amazigh", page_icon="🎬", layout="wide")
 st.title("🎬 استوديو الذكاء الاصطناعي الاحترافي")
 
 # --- المفاتيح المحفوظة (Defaults) ---
-DEFAULT_PIXABAY_API_KEY = "58178676-7dca3797f2ac366b67263077a"
 DEFAULT_ACESTEP_API_KEY = "821f692a10974eaa960316f37a9001f6"
 DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
 
@@ -44,8 +42,6 @@ def load_persistent_data():
             st.session_state.last_custom_script = data.get("last_custom_script", "")
             st.session_state.saved_api_key = data.get("gemini_api_key", "")
             st.session_state.acestep_api_key = data.get("acestep_api_key", DEFAULT_ACESTEP_API_KEY)
-            st.session_state.pixabay_api_key = data.get("pixabay_api_key", DEFAULT_PIXABAY_API_KEY)
-            st.session_state.hf_api_key = data.get("hf_api_key", "")
             st.session_state.gemini_model = data.get("gemini_model", DEFAULT_GEMINI_MODEL)
             st.session_state.aspect_ratio = data.get("aspect_ratio", "9:16 (ريلز/تيك توك)")
             st.session_state.quality = data.get("quality", "1080p")
@@ -79,8 +75,6 @@ def save_persistent_data():
             "last_custom_script": st.session_state.last_custom_script,
             "gemini_api_key": st.session_state.get("gemini_api_key_input", ""),
             "acestep_api_key": st.session_state.get("acestep_api_key_input", DEFAULT_ACESTEP_API_KEY),
-            "pixabay_api_key": st.session_state.get("pixabay_api_key_input", DEFAULT_PIXABAY_API_KEY),
-            "hf_api_key": st.session_state.get("hf_api_key_input", ""),
             "gemini_model": st.session_state.get("gemini_model_input", DEFAULT_GEMINI_MODEL),
             "aspect_ratio": st.session_state.get("aspect_ratio_input", "9:16 (ريلز/تيك توك)"),
             "quality": st.session_state.get("quality_input", "1080p"),
@@ -115,8 +109,6 @@ if 'background_music_bytes' not in st.session_state: st.session_state.background
 if 'last_custom_script' not in st.session_state: st.session_state.last_custom_script = ""
 if 'saved_api_key' not in st.session_state: st.session_state.saved_api_key = ""
 if 'acestep_api_key' not in st.session_state: st.session_state.acestep_api_key = DEFAULT_ACESTEP_API_KEY
-if 'pixabay_api_key' not in st.session_state: st.session_state.pixabay_api_key = DEFAULT_PIXABAY_API_KEY
-if 'hf_api_key' not in st.session_state: st.session_state.hf_api_key = ""
 if 'gemini_model' not in st.session_state: st.session_state.gemini_model = DEFAULT_GEMINI_MODEL
 if 'aspect_ratio' not in st.session_state: st.session_state.aspect_ratio = "9:16 (ريلز/تيك توك)"
 if 'quality' not in st.session_state: st.session_state.quality = "1080p"
@@ -130,26 +122,9 @@ if not st.session_state.get('data_loaded', False):
     load_persistent_data()
     st.session_state.data_loaded = True
 
-# --- دوال مساعدة للبحث ---
-def search_pixabay_videos(query, api_key, per_page=6):
-    if not api_key: return []
-    url = "https://pixabay.com/api/videos/"
-    params = {"key": api_key, "q": query, "per_page": per_page, "video_type": "film", "safesearch": "true"}
-    try:
-        res = requests.get(url, params=params, timeout=10)
-        res.raise_for_status()
-        hits = res.json().get('hits', [])
-        options = []
-        for hit in hits:
-            preview_url = hit['videos'].get('tiny', {}).get('url') or hit['videos'].get('small', {}).get('url') or hit['videos'].get('medium', {}).get('url')
-            download_url = hit['videos'].get('medium', {}).get('url') or hit['videos'].get('large', {}).get('url')
-            if preview_url and download_url:
-                options.append({"preview_url": preview_url, "download_url": download_url, "source": "Pixabay"})
-        return options
-    except Exception:
-        return []
-
+# --- دوال مساعدة للبحث (بدون مفاتيح API) ---
 def search_coverr_videos(query, per_page=3):
+    """البحث في Coverr (مجاني وبدون مفتاح API)"""
     url = "https://api.coverr.co/videos"
     params = {"query": query, "page_size": per_page}
     try:
@@ -162,7 +137,11 @@ def search_coverr_videos(query, per_page=3):
             preview_url = urls.get('mp4_720') or urls.get('mp4_1080') or urls.get('mp4_download')
             download_url = urls.get('mp4_1080') or urls.get('mp4_download')
             if preview_url and download_url:
-                options.append({"preview_url": preview_url, "download_url": download_url, "source": "Coverr"})
+                options.append({
+                    "preview_url": preview_url,
+                    "download_url": download_url,
+                    "source": "Coverr"
+                })
         return options
     except Exception:
         return []
@@ -204,25 +183,6 @@ def generate_audio_with_retry(client, model_name, prompt, voice_name, max_retrie
                 raise e
     raise Exception("فشلت جميع محاولات توليد الصوت.")
 
-# --- دالة توليد الفيديو بالذكاء الاصطناعي (Pollinations) ---
-def generate_ai_video(prompt, duration=5):
-    """
-    توليد فيديو بالذكاء الاصطناعي باستعمال Pollinations AI (مجاني وبدون مفتاح).
-    """
-    encoded_prompt = requests.utils.quote(prompt)
-    # استخدام نموذج seedance (سريع ومجاني)
-    url = f"https://gen.pollinations.ai/video/{encoded_prompt}?model=seedance&duration={duration}"
-    
-    try:
-        # Pollinations بيرجع ملف MP4 ديريكت
-        res = requests.get(url, timeout=60) # مهلة طويلة حيت التوليد كياخد وقت
-        if res.status_code == 200 and 'video' in res.headers.get('Content-Type', ''):
-            return res.content # نرجعو البيانات الخام
-        else:
-            return None
-    except Exception:
-        return None
-
 # --- الشريط الجانبي (الإعدادات العامة) ---
 with st.sidebar:
     st.header(":material/settings: الإعدادات العامة")
@@ -236,10 +196,6 @@ with st.sidebar:
     aspect_ratio = st.selectbox("أبعاد الفيديو:", ["9:16 (ريلز/تيك توك)", "16:9 (يوتيوب)", "1:1 (مربع)", "4:5 (إنستغرام)", "4:3 (كلاسيكي)"], index=["9:16 (ريلز/تيك توك)", "16:9 (يوتيوب)", "1:1 (مربع)", "4:5 (إنستغرام)", "4:3 (كلاسيكي)"].index(st.session_state.aspect_ratio) if st.session_state.aspect_ratio in ["9:16 (ريلز/تيك توك)", "16:9 (يوتيوب)", "1:1 (مربع)", "4:5 (إنستغرام)", "4:3 (كلاسيكي)"] else 0, key="aspect_ratio_input")
     quality = st.selectbox("جودة الفيديو:", ["1080p", "720p", "480p"], index=["1080p", "720p", "480p"].index(st.session_state.quality) if st.session_state.quality in ["1080p", "720p", "480p"] else 0, key="quality_input")
     max_duration = st.slider("المدة القصوى للفيديو (ثانية):", 10, 3600, st.session_state.max_duration, 10, key="max_duration_input")
-    
-    st.markdown("---")
-    st.subheader(":material/key: مفاتيح الفيديو")
-    pixabay_api_key = st.text_input("Pixabay API Key:", value=st.session_state.pixabay_api_key, type="password", key="pixabay_api_key_input")
     
     st.markdown("---")
     language_list = ["الدارجة المغربية", "الأمازيغية", "العربية الفصحى", "المصرية", "الخليجية", "السورية", "اللبنانية", "العراقية", "الأردنية", "الإماراتية", "السعودية", "التونسية", "الجزائرية", "الإنجليزية", "الفرنسية", "الإسبانية", "الألمانية", "التركية"]
@@ -353,118 +309,49 @@ elif st.session_state.current_step == 2:
             st.session_state.current_step = 1
             st.rerun()
     with col2:
-        if st.button(":material/arrow_forward: التالي: جلب الفيديوهات", type="primary"):
+        if st.button(":material/arrow_forward: التالي: جلب الفيديوهات تلقائياً", type="primary"):
             st.session_state.current_step = 3
             st.rerun()
 
 # ==========================================
-# الخطوة 3: جلب واختيار مقاطع الفيديو (محدث ومصحح)
+# الخطوة 3: جلب واختيار مقاطع الفيديو تلقائياً (بدون تدخل يدوي)
 # ==========================================
 elif st.session_state.current_step == 3:
-    st.header(":material/video_library: 3. اختيار مقاطع الفيديو")
-    st.info("جاري جلب مقاطع فيديو مقترحة لكل مشهد. يمكنك اختيار المقطع الذي يعجبك، أو إضافة أكثر من مقطع للمشهد الواحد.")
+    st.header(":material/video_library: 3. جلب مقاطع الفيديو تلقائياً")
+    st.info("قام الذكاء الاصطناعي باختيار الكلمات المفتاحية. جاري جلب المقاطع المناسبة تلقائياً...")
     
     for scene in st.session_state.script_data['scenes']:
         scene_num = str(scene['scene_number'])
         st.subheader(f":material/movie: المشهد {scene_num}: {scene['location']}")
         
         if scene_num not in st.session_state.scene_assets:
-            st.session_state.scene_assets[scene_num] = {"selected_videos": [], "video_options": []}
-        if "selected_videos" not in st.session_state.scene_assets[scene_num]:
-            st.session_state.scene_assets[scene_num]["selected_videos"] = []
+            st.session_state.scene_assets[scene_num] = {}
         
-        st.write("### المقاطع المختارة حالياً:")
-        if not st.session_state.scene_assets[scene_num]["selected_videos"]:
-            st.warning("لم يتم اختيار أي مقطع بعد. سيتم استخدام خلفية سوداء.")
+        # إذا لم يتم جلب فيديو بعد، قم بجلبه تلقائياً
+        if 'selected_video' not in st.session_state.scene_assets[scene_num]:
+            with st.spinner(f"جاري البحث عن فيديو لـ '{scene['search_keyword']}'..."):
+                options = search_coverr_videos(scene['search_keyword'])
+                if options:
+                    # نأخذ أول خيار تلقائياً
+                    st.session_state.scene_assets[scene_num]['selected_video'] = options[0]
+                else:
+                    st.session_state.scene_assets[scene_num]['selected_video'] = None
+                    st.warning(f"لم يتم العثور على فيديو لـ '{scene['search_keyword']}'. سيتم استخدام خلفية سوداء.")
+        
+        # عرض الفيديو المختار
+        selected_vid = st.session_state.scene_assets[scene_num].get('selected_video')
+        if selected_vid:
+            try:
+                headers = {"User-Agent": "Mozilla/5.0"}
+                vid_data = requests.get(selected_vid['preview_url'], headers=headers, timeout=10).content
+                st.video(io.BytesIO(vid_data))
+                st.markdown(f"**[🔗 مشاهدة الفيديو]({selected_vid['preview_url']})**")
+                st.caption(f"المصدر: {selected_vid['source']}")
+            except:
+                st.warning("تعذر تحميل المعاينة.")
         else:
-            # إعادة الترتيب باستعمال streamlit-sortables
-            selected_vids = st.session_state.scene_assets[scene_num]["selected_videos"]
-            items = [f"{i+1}. {vid['source']}" for i, vid in enumerate(selected_vids)]
-            
-            sorted_items = sort_items(items, key=f"sort_{scene_num}")
-            
-            # تحديث الترتيب بناءً على السحب والإفلات
-            new_order = []
-            for item in sorted_items:
-                idx = int(item.split('.')[0]) - 1
-                new_order.append(selected_vids[idx])
-            st.session_state.scene_assets[scene_num]["selected_videos"] = new_order
-            
-            for i, selected_vid in enumerate(new_order):
-                col1, col2 = st.columns([4, 1])
-                with col1:
-                    try:
-                        headers = {"User-Agent": "Mozilla/5.0"}
-                        vid_data = requests.get(selected_vid['preview_url'], headers=headers, timeout=10).content
-                        st.video(io.BytesIO(vid_data))
-                        st.markdown(f"**[🔗 مشاهدة الفيديو]({selected_vid['preview_url']})**")
-                    except:
-                        st.warning("تعذر تحميل المعاينة.")
-                with col2:
-                    if st.button(":material/delete: حذف", key=f"del_{scene_num}_{i}"):
-                        st.session_state.scene_assets[scene_num]["selected_videos"].pop(i)
-                        st.rerun()
-
-        st.write("### إضافة مقاطع جديدة:")
-        search_kw = st.text_input(f"كلمة البحث للمشهد {scene_num}:", value=scene.get('search_keyword', ''), key=f"kw_{scene_num}")
+            st.info("سيتم استخدام خلفية سوداء لهذا المشهد.")
         
-        if st.button(f":material/search: بحث عن فيديوهات للمشهد {scene_num}", key=f"search_{scene_num}"):
-            with st.spinner("جاري البحث..."):
-                options = search_pixabay_videos(search_kw, st.session_state.pixabay_api_key)
-                if not options: 
-                    options = search_coverr_videos(search_kw)
-                
-                st.session_state.scene_assets[scene_num]["video_options"] = options
-                st.rerun()
-
-        # عرض خيارات الفيديو
-        if st.session_state.scene_assets[scene_num].get("video_options"):
-            options = st.session_state.scene_assets[scene_num]["video_options"]
-            cols = st.columns(min(len(options), 3)) 
-            for i, opt in enumerate(options):
-                with cols[i % 3]:
-                    try:
-                        headers = {"User-Agent": "Mozilla/5.0"}
-                        vid_data = requests.get(opt['preview_url'], headers=headers, timeout=10).content
-                        st.video(io.BytesIO(vid_data))
-                        st.markdown(f"**[🔗 مشاهدة الفيديو]({opt['preview_url']})**")
-                    except:
-                        st.warning("تعذر تحميل المعاينة.")
-                    
-                    st.caption(f"المصدر: {opt['source']}")
-                    if st.button(f":material/add: إضافة للمشهد", key=f"add_{scene_num}_{i}"):
-                        st.session_state.scene_assets[scene_num]["selected_videos"].append(opt)
-                        st.success("تمت الإضافة!")
-                        time.sleep(0.5)
-                        st.rerun()
-
-        st.write("### 🤖 توليد فيديو بالذكاء الاصطناعي (AI):")
-        st.write("إذا لم يعجبك أي مقطع، يمكنك توليد فيديو بالذكاء الاصطناعي مباشرة من وصف المشهد.")
-        
-        if st.button(f":material/auto_awesome: توليد فيديو بالـ AI للمشهد {scene_num}", key=f"ai_{scene_num}"):
-            with st.spinner("جاري توليد الفيديو بالذكاء الاصطناعي... قد يستغرق بضع دقائق..."):
-                try:
-                    ai_prompt = scene.get('visual_description', search_kw)
-                    ai_vid_data = generate_ai_video(ai_prompt, duration=5)
-                    
-                    if ai_vid_data:
-                        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_ai_vid:
-                            tmp_ai_vid.write(ai_vid_data)
-                            ai_vid_path = tmp_ai_vid.name
-                        
-                        st.session_state.scene_assets[scene_num]["selected_videos"].append({
-                            "preview_url": ai_vid_path,
-                            "download_url": ai_vid_path,
-                            "source": "AI Generated"
-                        })
-                        st.success("✅ تم توليد الفيديو بنجاح وإضافته للمشهد!")
-                        st.rerun()
-                    else:
-                        st.error("فشل توليد الفيديو. جرب تغيير وصف المشهد.")
-                        
-                except Exception as e:
-                    st.error(f"وقع خطأ أثناء توليد الفيديو بالذكاء الاصطناعي: {e}")
-
         st.markdown("---")
 
     col1, col2 = st.columns(2)
@@ -517,42 +404,34 @@ elif st.session_state.current_step == 4:
                     audio_tracks.append(voiceover_clip.with_start(current_time))
                     
                     # --- الفيديو ---
-                    selected_videos = assets.get('selected_videos', [])
+                    selected_vid = assets.get('selected_video')
                     
-                    if not selected_videos:
+                    if not selected_vid:
                         clip = ColorClip(size=(target_w, target_h), color=(0,0,0), duration=scene_duration)
                         video_clips.append(clip.with_start(current_time))
                     else:
-                        duration_per_clip = scene_duration / len(selected_videos)
+                        video_url = selected_vid['download_url'] 
+                        headers = {"User-Agent": "Mozilla/5.0"}
+                        vid_data = requests.get(video_url, headers=headers).content
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_vid:
+                            tmp_vid.write(vid_data)
+                            vid_path = tmp_vid.name
+                            temp_files.append(vid_path)
                         
-                        for vid_idx, vid_info in enumerate(selected_videos):
-                            video_url = vid_info['download_url'] 
-                            
-                            if vid_info['source'] == "AI Generated":
-                                vid_path = video_url
-                            else:
-                                headers = {"User-Agent": "Mozilla/5.0"}
-                                vid_data = requests.get(video_url, headers=headers).content
-                                with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_vid:
-                                    tmp_vid.write(vid_data)
-                                    vid_path = tmp_vid.name
-                                    temp_files.append(vid_path)
-                            
-                            clip = VideoFileClip(vid_path)
-                            clip = clip.without_audio() 
-                            
-                            if clip.duration >= duration_per_clip:
-                                clip = clip.subclipped(0, duration_per_clip)
-                            else:
-                                loop_count = int(duration_per_clip / clip.duration) + 1
-                                clip = concatenate_videoclips([clip] * loop_count).subclipped(0, duration_per_clip)
-                            
-                            clip = clip.resized(height=target_h)
-                            if clip.w < target_w: clip = clip.resized(width=target_w)
-                            clip = clip.cropped(x_center=clip.w/2, y_center=clip.h/2, width=target_w, height=target_h)
-                            
-                            start_time_clip = current_time + (vid_idx * duration_per_clip)
-                            video_clips.append(clip.with_start(start_time_clip))
+                        clip = VideoFileClip(vid_path)
+                        clip = clip.without_audio() 
+                        
+                        if clip.duration >= scene_duration:
+                            clip = clip.subclipped(0, scene_duration)
+                        else:
+                            loop_count = int(scene_duration / clip.duration) + 1
+                            clip = concatenate_videoclips([clip] * loop_count).subclipped(0, scene_duration)
+                        
+                        clip = clip.resized(height=target_h)
+                        if clip.w < target_w: clip = clip.resized(width=target_w)
+                        clip = clip.cropped(x_center=clip.w/2, y_center=clip.h/2, width=target_w, height=target_h)
+                        
+                        video_clips.append(clip.with_start(current_time))
 
                     # --- المؤثرات الصوتية ---
                     sfx_list = scene.get('sfx_keywords', [])
