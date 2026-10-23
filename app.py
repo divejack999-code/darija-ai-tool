@@ -23,13 +23,12 @@ DEFAULT_ACESTEP_API_KEY = "821f692a10974eaa960316f37a9001f6"
 DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite" # النموذج الافتراضي الجديد (عندو 500 طلب فاليوم)
 
 # --- قائمة النماذج البديلة (Fallback Chain) ---
-# كنبداو بالنماذج اللي عندها حصة يومية كبيرة
 FALLBACK_MODELS = [
     "gemini-3.5-flash-lite", 
     "gemini-3.1-flash-lite", 
     "gemini-2.5-flash-lite",
     "gemini-2.5-flash",
-    "gemini-1.5-flash-latest" # كخيار أخير
+    "gemini-1.5-flash-latest"
 ]
 
 # --- إعدادات الحفظ الدائم ---
@@ -175,7 +174,13 @@ with st.sidebar:
         st.session_state.saved_api_key = gemini_api_key
         save_persistent_data()
     
-    gemini_model_input = st.text_input("2. Gemini Model Name:", value=st.session_state.gemini_model, key="gemini_model_input", help="مثال: gemini-3.5-flash-lite (عندو 500 طلب فاليوم)")
+    gemini_model_input = st.text_input("2. Gemini Model Name:", value=st.session_state.gemini_model, key="gemini_model_input", help="مثال: gemini-3.5-flash-lite")
+    
+    # --- الحماية: إلا كانت الخانة خاوية، كنعمرها بالنموذج الافتراضي ---
+    if not gemini_model_input.strip():
+        gemini_model_input = DEFAULT_GEMINI_MODEL
+        st.session_state.gemini_model = DEFAULT_GEMINI_MODEL
+        
     if gemini_model_input != st.session_state.gemini_model:
         st.session_state.gemini_model = gemini_model_input
         save_persistent_data()
@@ -293,8 +298,13 @@ with tab1:
                     genai.configure(api_key=gemini_api_key)
                     
                     # --- نظام الحماية والتحديث التلقائي (Auto-Fallback) ---
-                    current_model = st.session_state.gemini_model
-                    models_to_try = [current_model] + [m for m in FALLBACK_MODELS if m != current_model]
+                    current_model = st.session_state.gemini_model.strip() if st.session_state.gemini_model else ""
+                    
+                    # كنحضرو اللائحة: إلا كان النموذج الحالي صالح كنزيدوه، وإلا كنبداو ديريكت بالنماذج البديلة
+                    models_to_try = []
+                    if current_model:
+                        models_to_try.append(current_model)
+                    models_to_try.extend([m for m in FALLBACK_MODELS if m != current_model])
                     
                     model = None
                     used_model_name = None
@@ -311,9 +321,9 @@ with tab1:
                             st.warning(f"⚠️ النموذج '{model_name}' وصل للحد الأقصى. جاري تجربة نموذج آخر...")
                             continue
                         except Exception as e:
-                            # إلا كان خطأ 404 (النموذج ماشي موجود) كنكملو للبديل
-                            if "404" in str(e) or "not found" in str(e).lower():
-                                st.warning(f"⚠️ النموذج '{model_name}' غير متوفر. جاري تجربة نموذج آخر...")
+                            # إلا كان خطأ 404 (غير موجود) ولا 400 (فورمات غالط) كنكملو للبديل
+                            if "404" in str(e) or "400" in str(e) or "not found" in str(e).lower() or "unexpected model name" in str(e).lower():
+                                st.warning(f"⚠️ النموذج '{model_name}' غير متوفر أو غير صالح. جاري تجربة نموذج آخر...")
                                 continue
                             else:
                                 raise e
