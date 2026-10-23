@@ -140,9 +140,7 @@ def search_pixabay_videos(query, api_key, per_page=6):
         hits = res.json().get('hits', [])
         options = []
         for hit in hits:
-            # رابط المعاينة (نسخة صغيرة جدا باش تتحمل دغيا)
             preview_url = hit['videos'].get('tiny', {}).get('url') or hit['videos'].get('small', {}).get('url') or hit['videos'].get('medium', {}).get('url')
-            # رابط التحميل النهائي (نسخة متوسطة أو كبيرة للجودة)
             download_url = hit['videos'].get('medium', {}).get('url') or hit['videos'].get('large', {}).get('url')
             
             if preview_url and download_url:
@@ -372,12 +370,16 @@ elif st.session_state.current_step == 3:
             for i, selected_vid in enumerate(st.session_state.scene_assets[scene_num]["selected_videos"]):
                 col1, col2 = st.columns([4, 1])
                 with col1:
+                    # حل مشكل القراءة: تحميل الفيديو فـ ملف مؤقت
                     try:
-                        # تحميل الفيديو للمعاينة من الذاكرة
-                        vid_data = requests.get(selected_vid['preview_url'], timeout=10).content
-                        st.video(vid_data)
+                        headers = {"User-Agent": "Mozilla/5.0"}
+                        vid_data = requests.get(selected_vid['preview_url'], headers=headers, timeout=10).content
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_vid:
+                            tmp_vid.write(vid_data)
+                            tmp_path = tmp_vid.name
+                        st.video(tmp_path)
                     except:
-                        st.write("لا يمكن تحميل المعاينة")
+                        st.warning("تعذر تحميل المعاينة.")
                 with col2:
                     if st.button("❌ حذف", key=f"del_{scene_num}_{i}"):
                         st.session_state.scene_assets[scene_num]["selected_videos"].pop(i)
@@ -389,7 +391,7 @@ elif st.session_state.current_step == 3:
         if st.button(f"🔍 بحث عن فيديوهات للمشهد {scene_num}", key=f"search_{scene_num}"):
             with st.spinner("جاري البحث..."):
                 options = search_pixabay_videos(search_kw, st.session_state.pixabay_api_key)
-                if not options: # إذا ما لقيناش فـ Pixabay، نقلبو فـ Coverr
+                if not options: 
                     options = search_coverr_videos(search_kw)
                 
                 st.session_state.scene_assets[scene_num]["video_options"] = options
@@ -401,12 +403,16 @@ elif st.session_state.current_step == 3:
             cols = st.columns(min(len(options), 3)) 
             for i, opt in enumerate(options):
                 with cols[i % 3]:
+                    # نفس الحل هنا: تحميل الفيديو فـ ملف مؤقت
                     try:
-                        # هنا السر: تحميل الفيديو الصغير فـ الذاكرة وعرضو ديريكت
-                        vid_data = requests.get(opt['preview_url'], timeout=10).content
-                        st.video(vid_data)
+                        headers = {"User-Agent": "Mozilla/5.0"}
+                        vid_data = requests.get(opt['preview_url'], headers=headers, timeout=10).content
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_vid:
+                            tmp_vid.write(vid_data)
+                            tmp_path = tmp_vid.name
+                        st.video(tmp_path)
                     except:
-                        st.write("لا يمكن تحميل المعاينة")
+                        st.warning("تعذر تحميل المعاينة.")
                     
                     st.caption(f"المصدر: {opt['source']}")
                     if st.button(f"➕ إضافة للمشهد", key=f"add_{scene_num}_{i}"):
@@ -476,9 +482,9 @@ elif st.session_state.current_step == 4:
                         duration_per_clip = scene_duration / len(selected_videos)
                         
                         for vid_idx, vid_info in enumerate(selected_videos):
-                            # هنا كنحملو النسخة الكبيرة ديال الفيديو باش الجودة تكون مزيانة
                             video_url = vid_info['download_url'] 
-                            vid_data = requests.get(video_url).content
+                            headers = {"User-Agent": "Mozilla/5.0"}
+                            vid_data = requests.get(video_url, headers=headers).content
                             with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_vid:
                                 tmp_vid.write(vid_data)
                                 vid_path = tmp_vid.name
