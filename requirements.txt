@@ -1,8 +1,10 @@
 streamlit
 google-genai
 google-generativeai
-moviepy>=2.0.0
+moviepy==1.0.3
+imageio-ffmpeg
 Pillow
 numpy
 requests
 python-docx
+gradio_client
