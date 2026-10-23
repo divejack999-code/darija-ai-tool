@@ -61,7 +61,6 @@ def load_persistent_data():
             saved_model = data.get("gemini_model", "")
             st.session_state.gemini_model = saved_model if saved_model else DEFAULT_GEMINI_MODEL
             
-            # --- استرجاع إعدادات الفيديو واللغة ---
             st.session_state.aspect_ratio = data.get("aspect_ratio", "9:16 (ريلز/تيك توك)")
             st.session_state.quality = data.get("quality", "1080p")
             st.session_state.max_duration = data.get("max_duration", 60)
@@ -95,8 +94,6 @@ def save_persistent_data():
             "pixabay_api_key": st.session_state.get("pixabay_api_key_input", DEFAULT_PIXABAY_API_KEY),
             "hf_api_key": st.session_state.get("hf_api_key_input", ""),
             "gemini_model": st.session_state.get("gemini_model_input", DEFAULT_GEMINI_MODEL),
-            
-            # --- حفظ إعدادات الفيديو واللغة ---
             "aspect_ratio": st.session_state.get("aspect_ratio_input", "9:16 (ريلز/تيك توك)"),
             "quality": st.session_state.get("quality_input", "1080p"),
             "max_duration": st.session_state.get("max_duration_input", 60),
@@ -133,7 +130,6 @@ if 'pixabay_api_key' not in st.session_state: st.session_state.pixabay_api_key =
 if 'hf_api_key' not in st.session_state: st.session_state.hf_api_key = ""
 if 'gemini_model' not in st.session_state: st.session_state.gemini_model = DEFAULT_GEMINI_MODEL
 
-# قيم افتراضية للإعدادات باش ما يوقعش خطأ
 if 'aspect_ratio' not in st.session_state: st.session_state.aspect_ratio = "9:16 (ريلز/تيك توك)"
 if 'quality' not in st.session_state: st.session_state.quality = "1080p"
 if 'max_duration' not in st.session_state: st.session_state.max_duration = 60
@@ -174,7 +170,6 @@ def search_coverr_videos(query, per_page=1):
         pass
     return None
 
-# --- دالة SFXMint المحدثة والآمنة ---
 def search_sfxmint(query):
     if not query or str(query).lower() in ['n/a', 'none', 'null', '']:
         query = "cinematic"
@@ -185,7 +180,6 @@ def search_sfxmint(query):
         res.raise_for_status()
         data = res.json()
         
-        # التحقق من نوع البيانات المرجعة (قاموس أو ليستة)
         results = []
         if isinstance(data, dict):
             results = data.get('results', [])
@@ -197,7 +191,7 @@ def search_sfxmint(query):
             if isinstance(first_item, dict):
                 return first_item.get('audio_url')
             elif isinstance(first_item, str):
-                return first_item # إذا رجع رابط مباشر
+                return first_item 
     except Exception as e:
         print(f"SFXMint Error: {e}")
     return None
@@ -280,7 +274,6 @@ with st.sidebar:
     if st.button("مسح كل البيانات والبدء من جديد", type="primary"):
         clear_all_data()
         
-    # --- الحفظ التلقائي ملي كيتبدل شي حاجة فالسيدبار ---
     save_persistent_data()
 
 # --- التابات ---
@@ -519,7 +512,7 @@ with tab2:
     st.info("هذا الخيار يتطلب مفتاح API لخدمة مثل RunwayML أو Magic Hour.")
 
 # ==========================================
-# التاب 3: التوليد الأوتوماتيكي
+# التاب 3: التوليد الأوتوماتيكي (المحسن لتوفير الذاكرة)
 # ==========================================
 with tab3:
     st.header("🎬 التوليد الأوتوماتيكي للفيديو")
@@ -554,7 +547,7 @@ with tab3:
                 st.error("⚠️ عافاك ارفع على الأقل صورة وحدة.")
             else:
                 with st.spinner("جاري البحث، التحميل، التجميع، وإضافة المؤثرات..."):
-                    temp_files = [] # باش نمسحو الملفات المؤقتة فالأخير
+                    temp_files = []
                     try:
                         with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_audio:
                             tmp_audio.write(st.session_state.full_audio_bytes)
@@ -613,11 +606,8 @@ with tab3:
                                     img_array = np.array(img)
                                     
                                     clip = ImageClip(img_array).with_duration(duration_per_scene)
-                                    if i % 2 == 0:
-                                        clip = clip.resized(lambda t: 1 + 0.1 * t)
-                                    else:
-                                        clip = clip.resized(lambda t: 1.1 - 0.1 * t)
-                                    clip = clip.with_position('center').with_effects([vfx.FadeIn(0.5), vfx.FadeOut(0.5)])
+                                    # تبسيط الحركة باش ما نستهلكوش الذاكرة
+                                    clip = clip.with_position('center')
                                     
                                     video_clips.append(clip)
                             else:
@@ -649,16 +639,15 @@ with tab3:
                                             if clip.w < target_w:
                                                 clip = clip.resized(width=target_w)
                                             clip = clip.cropped(x_center=clip.w/2, y_center=clip.h/2, width=target_w, height=target_h)
-                                            clip = clip.with_effects([vfx.FadeIn(0.5), vfx.FadeOut(0.5)])
                                             
                                             video_clips.append(clip)
                                         except Exception as e:
                                             st.warning(f"⚠️ تعذر تحميل الفيديو: {e}")
-                                            clip = ColorClip(size=(target_w, target_h), color=(0,0,0), duration=duration_per_scene).with_effects([vfx.FadeIn(0.5), vfx.FadeOut(0.5)])
+                                            clip = ColorClip(size=(target_w, target_h), color=(0,0,0), duration=duration_per_scene)
                                             video_clips.append(clip)
                                     else:
                                         st.warning(f"⚠️ ما لقيتش فيديو لـ '{keyword}'. غادي نستعملو خلفية سوداء.")
-                                        clip = ColorClip(size=(target_w, target_h), color=(0,0,0), duration=duration_per_scene).with_effects([vfx.FadeIn(0.5), vfx.FadeOut(0.5)])
+                                        clip = ColorClip(size=(target_w, target_h), color=(0,0,0), duration=duration_per_scene)
                                         video_clips.append(clip)
 
                                     sfx_keywords = scene.get('sfx_keywords', [])
@@ -670,7 +659,6 @@ with tab3:
                                                 sfx_res = requests.get(sfx_url, timeout=10)
                                                 sfx_data = sfx_res.content
                                                 
-                                                # التأكد من أن الملف ليس صفحة HTML (حماية من الأخطاء)
                                                 if b"<html" in sfx_data.lower() or b"<!doctype" in sfx_data.lower():
                                                     st.warning(f"⚠️ المؤثر '{sfx_kw}' رجع صفحة ويب بدل ملف صوتي. تخطي...")
                                                     continue
@@ -686,7 +674,8 @@ with tab3:
                                                 offset = idx * 0.5 
                                                 start_time = base_start + offset
                                                 
-                                                sfx_clip = sfx_clip.with_start(start_time).with_volume_scaled(0.7)
+                                                # تخفيف الصوت باش ما يغطيش
+                                                sfx_clip = sfx_clip.with_start(start_time).with_volume_scaled(0.5)
                                                 audio_tracks.append(sfx_clip)
                                             except Exception as e:
                                                 st.warning(f"⚠️ تعذر تحميل المؤثر الصوتي {sfx_kw}: {e}")
@@ -694,7 +683,9 @@ with tab3:
                             if video_clips:
                                 st.write("🎬 كنركب الفيديو النهائي مع المؤثرات...")
                                 try:
-                                    final_video = concatenate_videoclips(video_clips, method="compose", padding=-0.5)
+                                    # استعمال method="chain" بدل "compose" باش نتفاداو استهلاك الذاكرة الكبير
+                                    final_video = concatenate_videoclips(video_clips, method="chain")
+                                    
                                     valid_audio_tracks = [track for track in audio_tracks if track is not None]
                                     if valid_audio_tracks:
                                         final_audio = CompositeAudioClip(valid_audio_tracks)
@@ -702,15 +693,15 @@ with tab3:
                                     
                                     output_path = "auto_generated_video.mp4"
                                     
-                                    # تحسينات MoviePy باش ما يطيحش
+                                    # إعدادات خفيفة جدا على السيرفر
                                     final_video.write_videofile(
                                         output_path, 
-                                        fps=24, 
+                                        fps=15, # تقليل الـ FPS باش نخففو المعالجة
                                         codec="libx264", 
                                         audio_codec="aac",
-                                        threads=4, # استعمال 4 أنوية للمعالجة
-                                        preset="ultrafast", # تقليل استهلاك الذاكرة
-                                        logger=None # كتم السجلات الطويلة
+                                        preset="ultrafast",
+                                        threads=1,
+                                        logger=None
                                     )
                                     
                                     st.success("✅ الفيديو الأوتوماتيكي جاهز مع المؤثرات السينمائية!")
@@ -726,7 +717,6 @@ with tab3:
                     except Exception as e:
                         st.error(f"وقع مشكل فالتوليد: {e}")
                     finally:
-                        # تنظيف الملفات المؤقتة بعد الانتهاء
                         for f in temp_files:
                             try:
                                 if os.path.exists(f):
