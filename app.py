@@ -174,6 +174,7 @@ def search_coverr_videos(query, per_page=1):
         pass
     return None
 
+# --- دالة SFXMint المحدثة والآمنة ---
 def search_sfxmint(query):
     if not query or str(query).lower() in ['n/a', 'none', 'null', '']:
         query = "cinematic"
@@ -182,9 +183,21 @@ def search_sfxmint(query):
     try:
         res = requests.get(url, params=params, timeout=10)
         res.raise_for_status()
-        results = res.json().get('results', [])
+        data = res.json()
+        
+        # التحقق من نوع البيانات المرجعة (قاموس أو ليستة)
+        results = []
+        if isinstance(data, dict):
+            results = data.get('results', [])
+        elif isinstance(data, list):
+            results = data
+            
         if results and len(results) > 0:
-            return results[0].get('audio_url')
+            first_item = results[0]
+            if isinstance(first_item, dict):
+                return first_item.get('audio_url')
+            elif isinstance(first_item, str):
+                return first_item # إذا رجع رابط مباشر
     except Exception as e:
         print(f"SFXMint Error: {e}")
     return None
@@ -541,10 +554,12 @@ with tab3:
                 st.error("⚠️ عافاك ارفع على الأقل صورة وحدة.")
             else:
                 with st.spinner("جاري البحث، التحميل، التجميع، وإضافة المؤثرات..."):
+                    temp_files = [] # باش نمسحو الملفات المؤقتة فالأخير
                     try:
                         with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_audio:
                             tmp_audio.write(st.session_state.full_audio_bytes)
                             audio_path = tmp_audio.name
+                            temp_files.append(audio_path)
                         
                         full_audio_clip = AudioFileClip(audio_path)
                         audio_duration = full_audio_clip.duration
@@ -557,6 +572,7 @@ with tab3:
                                 with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_music:
                                     tmp_music.write(st.session_state.background_music_bytes)
                                     music_path = tmp_music.name
+                                    temp_files.append(music_path)
                                 
                                 music_clip = AudioFileClip(music_path)
                                 if music_clip.duration < actual_duration:
@@ -566,7 +582,6 @@ with tab3:
                                 music_clip = music_clip.subclipped(0, actual_duration)
                                 music_clip = music_clip.with_volume_scaled(0.15)
                                 audio_tracks.append(music_clip)
-                                os.remove(music_path)
                             except Exception as e:
                                 st.warning(f"⚠️ تعذر تحميل الموسيقى الخلفية: {e}")
 
@@ -591,6 +606,7 @@ with tab3:
                                     with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_img:
                                         tmp_img.write(img_file.getvalue())
                                         img_path = tmp_img.name
+                                        temp_files.append(img_path)
                                     
                                     img = Image.open(img_path)
                                     img = img.resize((target_w, target_h))
@@ -604,7 +620,6 @@ with tab3:
                                     clip = clip.with_position('center').with_effects([vfx.FadeIn(0.5), vfx.FadeOut(0.5)])
                                     
                                     video_clips.append(clip)
-                                    os.remove(img_path)
                             else:
                                 for i, scene in enumerate(scenes):
                                     keyword = scene.get('search_keyword', 'abstract background')
@@ -619,6 +634,7 @@ with tab3:
                                         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_vid:
                                             tmp_vid.write(vid_data)
                                             vid_path = tmp_vid.name
+                                            temp_files.append(vid_path)
                                         
                                         try:
                                             clip = VideoFileClip(vid_path)
@@ -640,8 +656,6 @@ with tab3:
                                             st.warning(f"⚠️ تعذر تحميل الفيديو: {e}")
                                             clip = ColorClip(size=(target_w, target_h), color=(0,0,0), duration=duration_per_scene).with_effects([vfx.FadeIn(0.5), vfx.FadeOut(0.5)])
                                             video_clips.append(clip)
-                                        finally:
-                                            os.remove(vid_path)
                                     else:
                                         st.warning(f"⚠️ ما لقيتش فيديو لـ '{keyword}'. غادي نستعملو خلفية سوداء.")
                                         clip = ColorClip(size=(target_w, target_h), color=(0,0,0), duration=duration_per_scene).with_effects([vfx.FadeIn(0.5), vfx.FadeOut(0.5)])
@@ -653,10 +667,18 @@ with tab3:
                                         sfx_url = search_sfxmint(sfx_kw)
                                         if sfx_url:
                                             try:
-                                                sfx_data = requests.get(sfx_url, timeout=10).content
+                                                sfx_res = requests.get(sfx_url, timeout=10)
+                                                sfx_data = sfx_res.content
+                                                
+                                                # التأكد من أن الملف ليس صفحة HTML (حماية من الأخطاء)
+                                                if b"<html" in sfx_data.lower() or b"<!doctype" in sfx_data.lower():
+                                                    st.warning(f"⚠️ المؤثر '{sfx_kw}' رجع صفحة ويب بدل ملف صوتي. تخطي...")
+                                                    continue
+                                                
                                                 with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_sfx:
                                                     tmp_sfx.write(sfx_data)
                                                     sfx_path = tmp_sfx.name
+                                                    temp_files.append(sfx_path)
                                                 
                                                 sfx_clip = AudioFileClip(sfx_path)
                                                 
@@ -667,7 +689,7 @@ with tab3:
                                                 sfx_clip = sfx_clip.with_start(start_time).with_volume_scaled(0.7)
                                                 audio_tracks.append(sfx_clip)
                                             except Exception as e:
-                                                st.warning(f"⚠️ تعذر تحميل المؤثر الصوتي: {e}")
+                                                st.warning(f"⚠️ تعذر تحميل المؤثر الصوتي {sfx_kw}: {e}")
                             
                             if video_clips:
                                 st.write("🎬 كنركب الفيديو النهائي مع المؤثرات...")
@@ -679,7 +701,17 @@ with tab3:
                                         final_video = final_video.with_audio(final_audio)
                                     
                                     output_path = "auto_generated_video.mp4"
-                                    final_video.write_videofile(output_path, fps=24, codec="libx264", audio_codec="aac")
+                                    
+                                    # تحسينات MoviePy باش ما يطيحش
+                                    final_video.write_videofile(
+                                        output_path, 
+                                        fps=24, 
+                                        codec="libx264", 
+                                        audio_codec="aac",
+                                        threads=4, # استعمال 4 أنوية للمعالجة
+                                        preset="ultrafast", # تقليل استهلاك الذاكرة
+                                        logger=None # كتم السجلات الطويلة
+                                    )
                                     
                                     st.success("✅ الفيديو الأوتوماتيكي جاهز مع المؤثرات السينمائية!")
                                     st.video(output_path)
@@ -693,6 +725,14 @@ with tab3:
                                 
                     except Exception as e:
                         st.error(f"وقع مشكل فالتوليد: {e}")
+                    finally:
+                        # تنظيف الملفات المؤقتة بعد الانتهاء
+                        for f in temp_files:
+                            try:
+                                if os.path.exists(f):
+                                    os.remove(f)
+                            except:
+                                pass
 
 # ==========================================
 # التاب 4 و 5
