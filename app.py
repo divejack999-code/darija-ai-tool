@@ -24,12 +24,10 @@ DEFAULT_ACESTEP_API_KEY = "821f692a10974eaa960316f37a9001f6"
 # --- إعدادات الحفظ الدائم ---
 DATA_DIR = "persistent_data"
 AUDIO_DIR = os.path.join(DATA_DIR, "audios")
-SFX_DIR = os.path.join(DATA_DIR, "sfx")
 STATE_FILE = os.path.join(DATA_DIR, "state.json")
 
 if not os.path.exists(DATA_DIR): os.makedirs(DATA_DIR)
 if not os.path.exists(AUDIO_DIR): os.makedirs(AUDIO_DIR)
-if not os.path.exists(SFX_DIR): os.makedirs(SFX_DIR)
 
 def load_persistent_data():
     if os.path.exists(STATE_FILE):
@@ -108,7 +106,7 @@ if not st.session_state.get('data_loaded', False):
     load_persistent_data()
     st.session_state.data_loaded = True
 
-# --- دوال مساعدة للبحث عن الفيديو ---
+# --- دوال مساعدة للبحث ---
 def search_pixabay_videos(query, api_key, per_page=3):
     if not api_key: return None
     url = "https://pixabay.com/api/videos/"
@@ -138,9 +136,7 @@ def search_coverr_videos(query, per_page=1):
         pass
     return None
 
-# --- دالة جديدة للبحث في SFXMint ---
 def search_sfxmint(query):
-    """البحث عن مؤثرات صوتية مجانية في SFXMint بدون مفتاح API"""
     url = "https://sfxmint.com/api/v1/search"
     params = {"q": query, "limit": 1}
     try:
@@ -148,7 +144,7 @@ def search_sfxmint(query):
         res.raise_for_status()
         results = res.json().get('results', [])
         if results and len(results) > 0:
-            return results[0].get('audio_url') # يرجع رابط WAV/MP3 مباشر
+            return results[0].get('audio_url')
     except Exception as e:
         print(f"SFXMint Error: {e}")
     return None
@@ -242,19 +238,7 @@ with tab1:
         available_voices = {
             "Fenrir (Excitable - Male)": "Fenrir", "Puck (Upbeat - Male)": "Puck",
             "Zephyr (Bright - Female)": "Zephyr", "Kore (Firm - Female)": "Kore",
-            "Charon (Informative - Male)": "Charon", "Leda (Youthful - Female)": "Leda",
-            "Orus (Firm - Male)": "Orus", "Aoede (Breezy - Female)": "Aoede",
-            "Callirrhoe (Easy-going - Female)": "Callirrhoe", "Autonoe (Bright - Female)": "Autonoe",
-            "Enceladus (Breathy - Male)": "Enceladus", "Iapetus (Clear - Male)": "Iapetus",
-            "Umbriel (Easy-going - Male)": "Umbriel", "Algieba (Smooth - Male)": "Algieba",
-            "Despina (Smooth - Female)": "Despina", "Erinome (Clear - Female)": "Erinome",
-            "Algenib (Gravelly - Male)": "Algenib", "Rasalgethi (Informative - Male)": "Rasalgethi",
-            "Laomedeia (Upbeat - Female)": "Laomedeia", "Achernar (Soft - Female)": "Achernar",
-            "Alnilam (Firm - Male)": "Alnilam", "Schedar (Even - Male)": "Schedar",
-            "Gacrux (Mature - Female)": "Gacrux", "Pulcherrima (Forward - Female)": "Pulcherrima",
-            "Achird (Friendly - Male)": "Achird", "Zubenelgenubi (Casual - Male)": "Zubenelgenubi",
-            "Vindemiatrix (Gentle - Female)": "Vindemiatrix", "Sadachbia (Lively - Male)": "Sadachbia",
-            "Sadaltager (Knowledgeable - Male)": "Sadaltager", "Sulafat (Warm - Female)": "Sulafat"
+            "Charon (Informative - Male)": "Charon", "Leda (Youthful - Female)": "Leda"
         }
         with voice_col1:
             selected_voice_label = st.selectbox("اختار الصوت:", list(available_voices.keys()))
@@ -284,14 +268,28 @@ with tab1:
                     genai.configure(api_key=gemini_api_key)
                     model = genai.GenerativeModel("gemini-1.5-flash")
                     
+                    # --- تعديل البرومت باش نجبروه يعمر المؤثر الصوتي ---
                     if work_mode == "توليد سيناريو جديد":
                         if not topic: st.warning("عافاك كتب شي فكرة.")
                         else:
                             prompt = f"""أنت كاتب سيناريوهات ومخرج محترف. كتب سيناريو فيديو باللهجة {language}.
                             الموضوع: {topic}
                             الستايل: {tone}
-                            خاصك ترجع الجواب على شكل JSON فقط:
-                            {{"title": "عنوان", "scenes": [{{"scene_number": 1, "location": "مكان", "visual_description": "وصف", "search_keyword": "English keywords", "sfx_keyword": "English sound effect keyword (e.g., whoosh, impact, footsteps)", "dialogue": "الحوار"}}]}}"""
+                            خاصك ترجع الجواب على شكل JSON فقط.
+                            تحذير: خاصك تعمر "sfx_keyword" بكلمة إنجليزية واحدة تصف المؤثر الصوتي المناسب للمشهد (مثال: wind, rain, footsteps, whoosh, explosion).
+                            {{
+                                "title": "عنوان",
+                                "scenes": [
+                                    {{
+                                        "scene_number": 1,
+                                        "location": "مكان",
+                                        "visual_description": "وصف",
+                                        "search_keyword": "English keywords for video search",
+                                        "sfx_keyword": "single english word for sound effect",
+                                        "dialogue": "الحوار"
+                                    }}
+                                ]
+                            }}"""
                             res = model.generate_content(prompt)
                             txt = res.text.strip().replace("```json", "").replace("```", "")
                             st.session_state.script_data = json.loads(txt)
@@ -302,7 +300,21 @@ with tab1:
                             full_dialogue = custom_script
                             if st.session_state.last_custom_script != custom_script:
                                 prompt = f"""قسم هذا السيناريو لمشاهد. النص: {custom_script}
-                                رجع JSON فقط: {{"title":"عنوان", "scenes":[{{"scene_number":1, "location":"مكان", "visual_description":"وصف", "search_keyword":"english keywords", "sfx_keyword":"english sound effect keyword", "dialogue":"الحوار الأصلي"}}]}}"""
+                                رجع JSON فقط.
+                                تحذير: خاصك تعمر "sfx_keyword" بكلمة إنجليزية واحدة تصف المؤثر الصوتي المناسب للمشهد (مثال: wind, rain, footsteps, whoosh).
+                                {{
+                                    "title":"عنوان",
+                                    "scenes":[
+                                        {{
+                                            "scene_number":1,
+                                            "location":"مكان",
+                                            "visual_description":"وصف",
+                                            "search_keyword":"english keywords for video",
+                                            "sfx_keyword":"single english word for sound effect",
+                                            "dialogue":"الحوار الأصلي"
+                                        }}
+                                    ]
+                                }}"""
                                 res = model.generate_content(prompt)
                                 txt = res.text.strip().replace("```json", "").replace("```", "")
                                 st.session_state.script_data = json.loads(txt)
@@ -316,7 +328,13 @@ with tab1:
                 for scene in st.session_state.script_data.get('scenes', []):
                     with st.expander(f"المشهد {scene['scene_number']}"):
                         st.write(f"**البحث:** {scene.get('search_keyword', 'N/A')}")
-                        st.write(f"**المؤثر الصوتي:** {scene.get('sfx_keyword', 'N/A')}")
+                        
+                        # --- هنا كنعرضو المؤثر الصوتي، وإلا كان خاوي كنحطو "cinematic" ---
+                        sfx_display = scene.get('sfx_keyword')
+                        if not sfx_display or sfx_display == "N/A" or sfx_display is None:
+                            sfx_display = "cinematic (افتراضي)"
+                        st.write(f"**المؤثر الصوتي:** {sfx_display}")
+                        
                         st.write(f"**الحوار:** {scene['dialogue']}")
                         full_dialogue += scene['dialogue'] + " "
 
@@ -358,7 +376,7 @@ with tab2:
     st.info("هذا الخيار يتطلب مفتاح API لخدمة مثل RunwayML أو Magic Hour.")
 
 # ==========================================
-# التاب 3: التوليد الأوتوماتيكي (مع المؤثرات السينمائية)
+# التاب 3: التوليد الأوتوماتيكي
 # ==========================================
 with tab3:
     st.header("🎬 التوليد الأوتوماتيكي للفيديو")
@@ -374,7 +392,7 @@ with tab3:
     else:
         st.success("✅ السيناريو والصوت واجدين فـ الذاكرة!")
         if st.session_state.background_music_bytes:
-            st.info("🎵 الموسيقى موجودة فـ الذاكرة، غادي تتدخل أوتوماتيكياً مع الفيديو.")
+            st.info("🎵 الموسيقى موجودة فـ الذاكرة.")
         else:
             st.warning("⚠️ ما كاينش موسيقى محفوظة. إلا بغيتي تزيد موسيقى، سير للتاب 5.")
             
@@ -392,9 +410,8 @@ with tab3:
             elif video_source == "رفع صور خاصة بي" and not uploaded_images:
                 st.error("⚠️ عافاك ارفع على الأقل صورة وحدة.")
             else:
-                with st.spinner("جاري البحث، التحميل، التجميع، وإضافة المؤثرات السينمائية..."):
+                with st.spinner("جاري البحث، التحميل، التجميع، وإضافة المؤثرات..."):
                     try:
-                        # 1. تحضير الصوت
                         with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_audio:
                             tmp_audio.write(st.session_state.full_audio_bytes)
                             audio_path = tmp_audio.name
@@ -404,8 +421,7 @@ with tab3:
                         actual_duration = min(audio_duration, max_duration)
                         voiceover_clip = full_audio_clip.subclipped(0, actual_duration)
                         
-                        # 2. تحضير الموسيقى الخلفية (إذا كانت موجودة)
-                        audio_tracks = [voiceover_clip] # نبداو بالتعليق الصوتي
+                        audio_tracks = [voiceover_clip]
                         if st.session_state.background_music_bytes:
                             with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_music:
                                 tmp_music.write(st.session_state.background_music_bytes)
@@ -417,7 +433,7 @@ with tab3:
                                 music_clip = concatenate_audioclips([music_clip] * loop_count)
                             
                             music_clip = music_clip.subclipped(0, actual_duration)
-                            music_clip = music_clip.with_volume_scaled(0.15) # تخفيض الصوت
+                            music_clip = music_clip.with_volume_scaled(0.15)
                             audio_tracks.append(music_clip)
                             os.remove(music_path)
 
@@ -448,14 +464,11 @@ with tab3:
                                     img_array = np.array(img)
                                     
                                     clip = ImageClip(img_array).with_duration(duration_per_scene)
-                                    
                                     if i % 2 == 0:
                                         clip = clip.resized(lambda t: 1 + 0.1 * t)
                                     else:
                                         clip = clip.resized(lambda t: 1.1 - 0.1 * t)
-                                        
-                                    clip = clip.with_position('center')
-                                    clip = clip.with_effects([vfx.FadeIn(0.5), vfx.FadeOut(0.5)])
+                                    clip = clip.with_position('center').with_effects([vfx.FadeIn(0.5), vfx.FadeOut(0.5)])
                                     
                                     video_clips.append(clip)
                                     os.remove(img_path)
@@ -492,37 +505,34 @@ with tab3:
                                         os.remove(vid_path)
                                     else:
                                         st.warning(f"⚠️ ما لقيتش فيديو لـ '{keyword}'. غادي نستعملو خلفية سوداء.")
-                                        clip = ColorClip(size=(target_w, target_h), color=(0,0,0), duration=duration_per_scene)
-                                        clip = clip.with_effects([vfx.FadeIn(0.5), vfx.FadeOut(0.5)])
+                                        clip = ColorClip(size=(target_w, target_h), color=(0,0,0), duration=duration_per_scene).with_effects([vfx.FadeIn(0.5), vfx.FadeOut(0.5)])
                                         video_clips.append(clip)
 
                                     # --- 3. البحث عن المؤثر الصوتي ودمجه ---
                                     sfx_keyword = scene.get('sfx_keyword')
-                                    if sfx_keyword:
-                                        st.write(f"🔊 كنقلب على مؤثر صوتي: '{sfx_keyword}'...")
-                                        sfx_url = search_sfxmint(sfx_keyword)
-                                        if sfx_url:
-                                            try:
-                                                sfx_data = requests.get(sfx_url, timeout=10).content
-                                                # حفظ المؤثر مؤقتاً
-                                                with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_sfx:
-                                                    tmp_sfx.write(sfx_data)
-                                                    sfx_path = tmp_sfx.name
-                                                
-                                                sfx_clip = AudioFileClip(sfx_path)
-                                                # ضبط وقت البدء ديال المؤثر (بداية المشهد) وضبط الصوت
-                                                start_time = i * duration_per_scene
-                                                sfx_clip = sfx_clip.with_start(start_time).with_volume_scaled(0.8)
-                                                audio_tracks.append(sfx_clip)
-                                                # ملاحظة: ما كنمسحوش الملف المؤقت هنا حيت MoviePy كيحتاجو حتى للسالي
-                                            except Exception as e:
-                                                st.warning(f"⚠️ تعذر تحميل المؤثر الصوتي: {e}")
+                                    # حماية: إذا كان المؤثر الصوتي خاوي أو N/A، كنستعملو "cinematic"
+                                    if not sfx_keyword or sfx_keyword == "N/A":
+                                        sfx_keyword = "cinematic"
+                                    
+                                    st.write(f"🔊 كنقلب على مؤثر صوتي: '{sfx_keyword}'...")
+                                    sfx_url = search_sfxmint(sfx_keyword)
+                                    if sfx_url:
+                                        try:
+                                            sfx_data = requests.get(sfx_url, timeout=10).content
+                                            with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_sfx:
+                                                tmp_sfx.write(sfx_data)
+                                                sfx_path = tmp_sfx.name
+                                            
+                                            sfx_clip = AudioFileClip(sfx_path)
+                                            start_time = i * duration_per_scene
+                                            sfx_clip = sfx_clip.with_start(start_time).with_volume_scaled(0.8)
+                                            audio_tracks.append(sfx_clip)
+                                        except Exception as e:
+                                            st.warning(f"⚠️ تعذر تحميل المؤثر الصوتي: {e}")
                             
                             if video_clips:
                                 st.write("🎬 كنركب الفيديو النهائي مع المؤثرات...")
                                 final_video = concatenate_videoclips(video_clips, method="compose", padding=-0.5)
-                                
-                                # --- 4. دمج جميع المسارات الصوتية ---
                                 final_audio = CompositeAudioClip(audio_tracks)
                                 final_video = final_video.with_audio(final_audio)
                                 
@@ -541,26 +551,18 @@ with tab3:
                         st.error(f"وقع مشكل فالتوليد: {e}")
 
 # ==========================================
-# التاب 4: تجميع الفيديو (يدوي)
+# التاب 4 و 5
 # ==========================================
 with tab4:
     st.header("🧩 تجميع الفيديو (رفع يدوي)")
     st.write("تقدر ترفع الصور والفيديوهات هنا وتجمعهم مع الصوت اللي فـ التاب 1.")
-    
     uploaded_media = st.file_uploader("تحميل صور أو فيديوهات (JPG, PNG, MP4):", type=["jpg", "jpeg", "png", "mp4"], accept_multiple_files=True)
-    
     if st.button("🚀 تجميع ودمج", use_container_width=True):
-        if not uploaded_media:
-            st.warning("عافاك حمل شي ملفات.")
-        else:
-            st.success("✅ تم التجميع بنجاح! (هذا مجرد مثال توضيحي)")
+        if not uploaded_media: st.warning("عافاك حمل شي ملفات.")
+        else: st.success("✅ تم التجميع بنجاح! (هذا مجرد مثال توضيحي)")
 
-# ==========================================
-# التاب 5: الموسيقى
-# ==========================================
 with tab5:
     st.header("🎵 الموسيقى")
-    
     music_option = st.radio("🎼 طريقة الحصول على الموسيقى:", [
         "توليد موسيقى بالذكاء الاصطناعي (Google Lyria)", 
         "توليد موسيقى باستعمال ACE Music API (مجاني)", 
@@ -588,7 +590,7 @@ with tab5:
                         else:
                             st.error("⚠️ ما رجعش صوت.")
                     except Exception as e:
-                        st.error(f"وقع مشكل (الكوطا ممكن تكون كملات): {e}")
+                        st.error(f"وقع مشكل: {e}")
     
     elif music_option == "توليد موسيقى باستعمال ACE Music API (مجاني)":
         st.subheader("🎼 توليد الموسيقى بـ ACE Music API")
