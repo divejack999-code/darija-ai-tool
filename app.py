@@ -14,6 +14,7 @@ from moviepy import ImageClip, AudioFileClip, concatenate_videoclips, VideoFileC
 from docx import Document
 from google import genai
 from google.genai import types
+from gradio_client import Client
 
 # --- إعدادات الواجهة ---
 st.set_page_config(page_title="AI Studio Pro: Darija & Amazigh", page_icon="🎬", layout="wide")
@@ -54,6 +55,7 @@ def load_persistent_data():
             st.session_state.current_step = data.get("current_step", 1)
             st.session_state.scene_assets = data.get("scene_assets", {})
             st.session_state.voice_mode = data.get("voice_mode", "توليد الصوت بالذكاء الاصطناعي (لكل مشهد)")
+            st.session_state.sfx_mode = data.get("sfx_mode", "البحث في المكتبة المجانية (SFXMint)")
             
             main_audio_path = os.path.join(AUDIO_DIR, "main_voice.wav")
             if os.path.exists(main_audio_path):
@@ -87,7 +89,8 @@ def save_persistent_data():
             "tone": st.session_state.get("tone_input", "الكوميدية"),
             "current_step": st.session_state.get("current_step", 1),
             "scene_assets": st.session_state.get("scene_assets", {}),
-            "voice_mode": st.session_state.get("voice_mode", "توليد الصوت بالذكاء الاصطناعي (لكل مشهد)")
+            "voice_mode": st.session_state.get("voice_mode", "توليد الصوت بالذكاء الاصطناعي (لكل مشهد)"),
+            "sfx_mode": st.session_state.get("sfx_mode", "البحث في المكتبة المجانية (SFXMint)")
         }
         with open(STATE_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
@@ -124,6 +127,7 @@ if 'tone' not in st.session_state: st.session_state.tone = "الكوميدية"
 if 'current_step' not in st.session_state: st.session_state.current_step = 1
 if 'scene_assets' not in st.session_state: st.session_state.scene_assets = {}
 if 'voice_mode' not in st.session_state: st.session_state.voice_mode = "توليد الصوت بالذكاء الاصطناعي (لكل مشهد)"
+if 'sfx_mode' not in st.session_state: st.session_state.sfx_mode = "البحث في المكتبة المجانية (SFXMint)"
 
 if not st.session_state.get('data_loaded', False):
     load_persistent_data()
@@ -165,20 +169,51 @@ def search_coverr_videos(query, per_page=1):
         pass
     return None
 
+# --- دالة SFXMint المصححة ---
 def search_sfxmint(query):
-    if not query or str(query).lower() in ['n/a', 'none', 'null', '']: query = "cinematic"
+    if not query or str(query).lower() in ['n/a', 'none', 'null', '']:
+        query = "cinematic"
+    
     url = "https://sfxmint.com/api/v1/search"
     params = {"q": query, "limit": 1}
     try:
         res = requests.get(url, params=params, timeout=10)
         res.raise_for_status()
         data = res.json()
-        results = data.get('results', []) if isinstance(data, dict) else data if isinstance(data, list) else []
-        if results:
-            first = results[0]
-            return first.get('audio_url') if isinstance(first, dict) else first if isinstance(first, str) else None
+        
+        results = []
+        if isinstance(data, dict):
+            results = data.get('results', [])
+        elif isinstance(data, list):
+            results = data
+            
+        if results and len(results) > 0:
+            first_item = results[0]
+            if isinstance(first_item, dict):
+                return first_item.get('audio_url') or first_item.get('preview_url')
+            elif isinstance(first_item, str):
+                return first_item
     except Exception:
         pass
+    return None
+
+# --- دالة توليد المؤثرات بالذكاء الاصطناعي (Hugging Face) ---
+def generate_ai_sfx(prompt, duration=2):
+    try:
+        client = Client("surn-unlimitedmusicgen.hf.space")
+        result = client.predict(
+            prompt=prompt,
+            duration=duration,
+            api_name="/predict"
+        )
+        
+        if result and isinstance(result, tuple) and len(result) > 0:
+            audio_path = result[0]
+            if os.path.exists(audio_path):
+                with open(audio_path, "rb") as f:
+                    return f.read()
+    except Exception as e:
+        st.error(f"تعذر توليد المؤثر بالذكاء الاصطناعي: {e}")
     return None
 
 def generate_audio_with_retry(client, model_name, prompt, voice_name, max_retries=3):
@@ -357,10 +392,14 @@ elif st.session_state.current_step == 2:
 # ==========================================
 elif st.session_state.current_step == 3:
     st.header(":material/graphic_eq: 3. المؤثرات الصوتية (SFX)")
-    st.info("الذكاء الاصطناعي كيجيب المؤثرات الصوتية المناسبة لكل مشهد. تقدر تسمعهم هنا قبل المونتاج.")
+    
+    sfx_mode = st.radio("🎛️ طريقة الحصول على المؤثرات الصوتية:", 
+                        ["البحث في المكتبة المجانية (SFXMint)", "توليد بالذكاء الاصطناعي (Hugging Face)"], 
+                        horizontal=True)
+    st.session_state.sfx_mode = sfx_mode
     
     if st.button(":material/search: جلب المؤثرات الصوتية", type="primary"):
-        with st.spinner("جاري البحث عن المؤثرات الصوتية..."):
+        with st.spinner("جاري جلب المؤثرات الصوتية..."):
             for scene in st.session_state.script_data['scenes']:
                 scene_num = str(scene['scene_number'])
                 sfx_list = scene.get('sfx_keywords', [])
@@ -372,10 +411,22 @@ elif st.session_state.current_step == 3:
                 scene_assets['sfx_urls'] = []
                 
                 for sfx_kw in sfx_list:
-                    sfx_url = search_sfxmint(sfx_kw)
-                    if sfx_url:
-                        scene_assets['sfx_urls'].append({"keyword": sfx_kw, "url": sfx_url})
-            st.success("✅ تم جلب المؤثرات!")
+                    if sfx_mode == "البحث في المكتبة المجانية (SFXMint)":
+                        sfx_url = search_sfxmint(sfx_kw)
+                        if sfx_url:
+                            scene_assets['sfx_urls'].append({"keyword": sfx_kw, "url": sfx_url, "source": "SFXMint"})
+                        else:
+                            st.warning(f"لم يتم العثور على مؤثر لـ '{sfx_kw}'.")
+                    else:
+                        sfx_data = generate_ai_sfx(sfx_kw, duration=2)
+                        if sfx_data:
+                            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+                                tmp.write(sfx_data)
+                                sfx_path = tmp.name
+                            scene_assets['sfx_urls'].append({"keyword": sfx_kw, "url": sfx_path, "source": "AI"})
+                        else:
+                            st.warning(f"فشل توليد المؤثر لـ '{sfx_kw}'.")
+            st.success("✅ تم جلب/توليد المؤثرات!")
             st.rerun()
 
     # عرض المؤثرات
@@ -388,8 +439,11 @@ elif st.session_state.current_step == 3:
             if sfx_urls:
                 st.subheader(f"المشهد {scene_num}")
                 for sfx in sfx_urls:
-                    st.write(f"🔊 {sfx['keyword']}")
-                    st.audio(sfx['url'])
+                    st.write(f"🔊 {sfx['keyword']} ({sfx['source']})")
+                    if sfx['source'] == "AI":
+                        st.audio(sfx['url'], format="audio/wav")
+                    else:
+                        st.audio(sfx['url'])
 
     col1, col2 = st.columns(2)
     with col1:
@@ -579,11 +633,15 @@ elif st.session_state.current_step == 5:
                     sfx_urls = assets.get('sfx_urls', [])
                     for idx, sfx in enumerate(sfx_urls):
                         try:
-                            sfx_data = requests.get(sfx['url'], timeout=10).content
-                            with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_sfx:
-                                tmp_sfx.write(sfx_data)
-                                sfx_path = tmp_sfx.name
-                                temp_files.append(sfx_path)
+                            if sfx['source'] == "AI":
+                                sfx_path = sfx['url']
+                            else:
+                                sfx_data = requests.get(sfx['url'], timeout=10).content
+                                with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_sfx:
+                                    tmp_sfx.write(sfx_data)
+                                    sfx_path = tmp_sfx.name
+                                    temp_files.append(sfx_path)
+                            
                             sfx_clip = AudioFileClip(sfx_path)
                             audio_tracks.append(sfx_clip.with_start(current_time + (idx * 0.5)).with_volume_scaled(0.6))
                         except Exception as e:
