@@ -130,7 +130,7 @@ if not st.session_state.get('data_loaded', False):
     st.session_state.data_loaded = True
 
 # --- دوال مساعدة للبحث ---
-def search_pixabay_videos(query, api_key, per_page=5):
+def search_pixabay_videos(query, api_key, per_page=6):
     if not api_key: return []
     url = "https://pixabay.com/api/videos/"
     params = {"key": api_key, "q": query, "per_page": per_page, "video_type": "film", "safesearch": "true"}
@@ -167,7 +167,6 @@ def search_sfxmint(query):
         pass
     return None
 
-# --- دالة جديدة لتوليد الصوت مع إعادة المحاولة ---
 def generate_audio_with_retry(client, model_name, prompt, voice_name, max_retries=3):
     for attempt in range(max_retries):
         try:
@@ -182,7 +181,7 @@ def generate_audio_with_retry(client, model_name, prompt, voice_name, max_retrie
             return res
         except Exception as e:
             if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-                wait_time = 10 * (attempt + 1) # 10, 20, 30 ثانية
+                wait_time = 10 * (attempt + 1)
                 st.warning(f"⚠️ تم الوصول للحد الأقصى للطلبات. جاري إعادة المحاولة بعد {wait_time} ثانية... (المحاولة {attempt+1}/{max_retries})")
                 time.sleep(wait_time)
             else:
@@ -282,7 +281,6 @@ elif st.session_state.current_step == 2:
                 for scene in st.session_state.script_data['scenes']:
                     scene_num = scene['scene_number']
                     if str(scene_num) not in st.session_state.scene_assets or 'audio_path' not in st.session_state.scene_assets[str(scene_num)]:
-                        # استخدام النموذج الأخف والأكثر استقراراً مع نظام إعادة المحاولة
                         res = generate_audio_with_retry(
                             client=client,
                             model_name="gemini-3.8-flash-lite-tts",
@@ -327,54 +325,66 @@ elif st.session_state.current_step == 2:
             st.rerun()
 
 # ==========================================
-# الخطوة 3: جلب واختيار مقاطع الفيديو
+# الخطوة 3: جلب واختيار مقاطع الفيديو (محدث)
 # ==========================================
 elif st.session_state.current_step == 3:
     st.header("3. اختيار مقاطع الفيديو")
-    st.info("جاري جلب مقاطع فيديو مقترحة لكل مشهد. يمكنك اختيار المقطع الذي يعجبك.")
+    st.info("جاري جلب مقاطع فيديو مقترحة لكل مشهد. يمكنك اختيار المقطع الذي يعجبك، أو إضافة أكثر من مقطع للمشهد الواحد.")
     
     for scene in st.session_state.script_data['scenes']:
         scene_num = str(scene['scene_number'])
         st.subheader(f"المشهد {scene_num}: {scene['location']}")
         
-        # جلب الفيديوهات
-        if scene_num not in st.session_state.scene_assets or 'video_options' not in st.session_state.scene_assets[scene_num]:
-            with st.spinner(f"جاري البحث عن فيديو لـ '{scene['search_keyword']}'..."):
+        # تهيئة البيانات إذا لم تكن موجودة
+        if scene_num not in st.session_state.scene_assets:
+            st.session_state.scene_assets[scene_num] = {"selected_videos": [], "video_options": []}
+        if "selected_videos" not in st.session_state.scene_assets[scene_num]:
+            st.session_state.scene_assets[scene_num]["selected_videos"] = []
+        
+        # عرض المقاطع المختارة حالياً
+        st.write("### المقاطع المختارة حالياً:")
+        if not st.session_state.scene_assets[scene_num]["selected_videos"]:
+            st.warning("لم يتم اختيار أي مقطع بعد. سيتم استخدام خلفية سوداء.")
+        else:
+            for i, selected_vid in enumerate(st.session_state.scene_assets[scene_num]["selected_videos"]):
+                col1, col2 = st.columns([4, 1])
+                with col1:
+                    st.video(selected_vid['url'])
+                with col2:
+                    if st.button("❌ حذف", key=f"del_{scene_num}_{i}"):
+                        st.session_state.scene_assets[scene_num]["selected_videos"].pop(i)
+                        st.rerun()
+
+        # البحث وإضافة مقاطع جديدة
+        st.write("### إضافة مقاطع جديدة:")
+        search_kw = st.text_input(f"كلمة البحث للمشهد {scene_num}:", value=scene.get('search_keyword', ''), key=f"kw_{scene_num}")
+        
+        if st.button(f"🔍 بحث عن فيديوهات للمشهد {scene_num}", key=f"search_{scene_num}"):
+            with st.spinner("جاري البحث..."):
                 options = []
-                # Pixabay
-                hits = search_pixabay_videos(scene['search_keyword'], st.session_state.pixabay_api_key)
-                for hit in hits[:3]: # أول 3 نتائج
-                    video_url = hit['videos'].get('large', {}).get('url') or hit['videos'].get('medium', {}).get('url')
+                hits = search_pixabay_videos(search_kw, st.session_state.pixabay_api_key)
+                for hit in hits:
+                    # جلب الفيديو بجودة متوسطة باش يتحمل ديريكت
+                    video_url = hit['videos'].get('medium', {}).get('url') or hit['videos'].get('small', {}).get('url') or hit['videos'].get('large', {}).get('url')
                     if video_url: options.append({"url": video_url, "source": "Pixabay"})
-                # Coverr (إذا ما لقيناش بزاف)
-                if len(options) < 2:
-                    coverr_hits = search_coverr_videos(scene['search_keyword'])
-                    for hit in coverr_hits[:2]:
-                        video_url = hit.get('urls', {}).get('mp4_download') or hit.get('urls', {}).get('mp4_1080')
-                        if video_url: options.append({"url": video_url, "source": "Coverr"})
-                
-                if 'scene_assets' not in st.session_state.scene_assets: st.session_state.scene_assets[scene_num] = {}
-                st.session_state.scene_assets[scene_num]['video_options'] = options
+                st.session_state.scene_assets[scene_num]["video_options"] = options
                 st.rerun()
 
-        # عرض الاختيارات
-        if 'video_options' in st.session_state.scene_assets[scene_num]:
-            options = st.session_state.scene_assets[scene_num]['video_options']
-            if not options:
-                st.warning("ما لقيناش فيديوهات. غادي نستعملو خلفية سوداء.")
-                st.session_state.scene_assets[scene_num]['selected_video'] = None
-            else:
-                selected_url = st.session_state.scene_assets[scene_num].get('selected_video')
-                cols = st.columns(len(options))
-                for i, opt in enumerate(options):
-                    with cols[i]:
-                        st.video(opt['url'])
-                        st.caption(f"المصدر: {opt['source']}")
-                        if st.button(f"اختيار المقطع {i+1}", key=f"select_{scene_num}_{i}"):
-                            st.session_state.scene_assets[scene_num]['selected_video'] = opt['url']
-                            st.rerun()
-                if selected_url:
-                    st.success(f"✅ تم اختيار المقطع: {selected_url[:30]}...")
+        # عرض خيارات الفيديو
+        if st.session_state.scene_assets[scene_num].get("video_options"):
+            options = st.session_state.scene_assets[scene_num]["video_options"]
+            cols = st.columns(min(len(options), 3)) # عرض 3 كحد أقصى في الصف
+            for i, opt in enumerate(options):
+                with cols[i % 3]:
+                    st.video(opt['url'])
+                    st.caption(f"المصدر: {opt['source']}")
+                    if st.button(f"➕ إضافة للمشهد", key=f"add_{scene_num}_{i}"):
+                        st.session_state.scene_assets[scene_num]["selected_videos"].append(opt)
+                        st.success("تمت الإضافة!")
+                        time.sleep(0.5)
+                        st.rerun()
+
+        st.markdown("---")
 
     col1, col2 = st.columns(2)
     with col1:
@@ -396,7 +406,6 @@ elif st.session_state.current_step == 4:
         with st.spinner("جاري تركيب الفيديو النهائي... (هادشي كياخد وقت)"):
             temp_files = []
             try:
-                # 1. تحضير الأبعاد
                 aspect_map = {"9:16 (ريلز/تيك توك)": (1080, 1920), "16:9 (يوتيوب)": (1920, 1080), "1:1 (مربع)": (1080, 1080), "4:5 (إنستغرام)": (1080, 1350), "4:3 (كلاسيكي)": (1440, 1080)}
                 quality_map = {"480p": 480, "720p": 720, "1080p": 1080}
                 target_h = quality_map[st.session_state.quality]
@@ -406,7 +415,6 @@ elif st.session_state.current_step == 4:
                 audio_tracks = []
                 current_time = 0
 
-                # 2. معالجة كل مشهد
                 for scene in st.session_state.script_data['scenes']:
                     scene_num = str(scene['scene_number'])
                     assets = st.session_state.scene_assets.get(scene_num, {})
@@ -420,40 +428,48 @@ elif st.session_state.current_step == 4:
                     voiceover_clip = AudioFileClip(audio_path)
                     scene_duration = voiceover_clip.duration
                     
-                    # تقصير المدة إذا تجاوزت الحد الأقصى
                     if current_time + scene_duration > st.session_state.max_duration:
                         scene_duration = st.session_state.max_duration - current_time
-                        if scene_duration <= 0: break # سالات المدة
+                        if scene_duration <= 0: break
                         voiceover_clip = voiceover_clip.subclipped(0, scene_duration)
                     
                     audio_tracks.append(voiceover_clip.with_start(current_time))
                     
-                    # --- الفيديو ---
-                    video_url = assets.get('selected_video')
-                    if video_url:
-                        vid_data = requests.get(video_url).content
-                        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_vid:
-                            tmp_vid.write(vid_data)
-                            vid_path = tmp_vid.name
-                            temp_files.append(vid_path)
-                        
-                        clip = VideoFileClip(vid_path)
-                        clip = clip.without_audio() # إزالة الصوت الأصلي
-                        
-                        if clip.duration >= scene_duration:
-                            clip = clip.subclipped(0, scene_duration)
-                        else:
-                            loop_count = int(scene_duration / clip.duration) + 1
-                            clip = concatenate_videoclips([clip] * loop_count).subclipped(0, scene_duration)
-                        
-                        clip = clip.resized(height=target_h)
-                        if clip.w < target_w: clip = clip.resized(width=target_w)
-                        clip = clip.cropped(x_center=clip.w/2, y_center=clip.h/2, width=target_w, height=target_h)
-                        video_clips.append(clip.with_start(current_time))
-                    else:
+                    # --- الفيديو (معالجة أكثر من مقطع إذا وجد) ---
+                    selected_videos = assets.get('selected_videos', [])
+                    
+                    if not selected_videos:
                         # خلفية سوداء
                         clip = ColorClip(size=(target_w, target_h), color=(0,0,0), duration=scene_duration)
                         video_clips.append(clip.with_start(current_time))
+                    else:
+                        # تقسيم المدة على عدد المقاطع
+                        duration_per_clip = scene_duration / len(selected_videos)
+                        
+                        for vid_idx, vid_info in enumerate(selected_videos):
+                            video_url = vid_info['url']
+                            vid_data = requests.get(video_url).content
+                            with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_vid:
+                                tmp_vid.write(vid_data)
+                                vid_path = tmp_vid.name
+                                temp_files.append(vid_path)
+                            
+                            clip = VideoFileClip(vid_path)
+                            clip = clip.without_audio() # إزالة الصوت الأصلي
+                            
+                            if clip.duration >= duration_per_clip:
+                                clip = clip.subclipped(0, duration_per_clip)
+                            else:
+                                loop_count = int(duration_per_clip / clip.duration) + 1
+                                clip = concatenate_videoclips([clip] * loop_count).subclipped(0, duration_per_clip)
+                            
+                            clip = clip.resized(height=target_h)
+                            if clip.w < target_w: clip = clip.resized(width=target_w)
+                            clip = clip.cropped(x_center=clip.w/2, y_center=clip.h/2, width=target_w, height=target_h)
+                            
+                            # توقيت بداية المقطع
+                            start_time_clip = current_time + (vid_idx * duration_per_clip)
+                            video_clips.append(clip.with_start(start_time_clip))
 
                     # --- المؤثرات الصوتية ---
                     sfx_list = scene.get('sfx_keywords', [])
@@ -468,7 +484,6 @@ elif st.session_state.current_step == 4:
                                     sfx_path = tmp_sfx.name
                                     temp_files.append(sfx_path)
                                 sfx_clip = AudioFileClip(sfx_path)
-                                # المؤثر يبدا مع بداية المشهد (أو بعد 0.5 ثانية)
                                 audio_tracks.append(sfx_clip.with_start(current_time + (idx * 0.5)).with_volume_scaled(0.6))
                             except Exception as e:
                                 st.warning(f"تعذر تحميل المؤثر {sfx_kw}: {e}")
