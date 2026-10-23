@@ -129,7 +129,7 @@ if not st.session_state.get('data_loaded', False):
     load_persistent_data()
     st.session_state.data_loaded = True
 
-# --- دوال مساعدة للبحث (محدثة لجلب روابط المعاينة والتحميل) ---
+# --- دوال مساعدة للبحث ---
 def search_pixabay_videos(query, api_key, per_page=6):
     if not api_key: return []
     url = "https://pixabay.com/api/videos/"
@@ -348,7 +348,7 @@ elif st.session_state.current_step == 2:
             st.rerun()
 
 # ==========================================
-# الخطوة 3: جلب واختيار مقاطع الفيديو (محدث)
+# الخطوة 3: جلب واختيار مقاطع الفيديو (محدث ومصحح)
 # ==========================================
 elif st.session_state.current_step == 3:
     st.header("3. اختيار مقاطع الفيديو")
@@ -370,14 +370,11 @@ elif st.session_state.current_step == 3:
             for i, selected_vid in enumerate(st.session_state.scene_assets[scene_num]["selected_videos"]):
                 col1, col2 = st.columns([4, 1])
                 with col1:
-                    # حل مشكل القراءة: تحميل الفيديو فـ ملف مؤقت
                     try:
+                        # التصحيح: استعمال io.BytesIO باش Streamlit يقراه
                         headers = {"User-Agent": "Mozilla/5.0"}
                         vid_data = requests.get(selected_vid['preview_url'], headers=headers, timeout=10).content
-                        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_vid:
-                            tmp_vid.write(vid_data)
-                            tmp_path = tmp_vid.name
-                        st.video(tmp_path)
+                        st.video(io.BytesIO(vid_data))
                     except:
                         st.warning("تعذر تحميل المعاينة.")
                 with col2:
@@ -403,14 +400,11 @@ elif st.session_state.current_step == 3:
             cols = st.columns(min(len(options), 3)) 
             for i, opt in enumerate(options):
                 with cols[i % 3]:
-                    # نفس الحل هنا: تحميل الفيديو فـ ملف مؤقت
                     try:
+                        # التصحيح هنا أيضاً
                         headers = {"User-Agent": "Mozilla/5.0"}
                         vid_data = requests.get(opt['preview_url'], headers=headers, timeout=10).content
-                        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_vid:
-                            tmp_vid.write(vid_data)
-                            tmp_path = tmp_vid.name
-                        st.video(tmp_path)
+                        st.video(io.BytesIO(vid_data))
                     except:
                         st.warning("تعذر تحميل المعاينة.")
                     
