@@ -23,8 +23,8 @@ st.title("🎬 استوديو الذكاء الاصطناعي الاحترافي
 # --- المفاتيح المحفوظة (Defaults) ---
 DEFAULT_PIXABAY_API_KEY = "58178676-7dca3797f2ac366b67263077a"
 DEFAULT_ACESTEP_API_KEY = "821f692a10974eaa960316f37a9001f6"
+DEFAULT_FREESOUND_API_KEY = "QdLfUf14PEBfelWpGb7Ce8kX2F0ngkPMusxDELXJ" 
 DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
-DEFAULT_FREESOUND_API_KEY = "" # غادي تحط المفتاح ديالك هنا
 
 FALLBACK_MODELS = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-1.5-flash-latest"]
 
@@ -148,8 +148,9 @@ def search_pixabay_videos(query, api_key, per_page=3):
         hits = res.json().get('hits', [])
         if hits:
             hit = hits[0]
-            preview_url = hit['videos'].get('tiny', {}).get('url') or hit['videos'].get('small', {}).get('url') or hit['videos'].get('medium', {}).get('url')
-            download_url = hit['videos'].get('medium', {}).get('url') or hit['videos'].get('large', {}).get('url')
+            preview_url = hit.get('videos', {}).get('tiny', {}).get('url') or hit.get('videos', {}).get('small', {}).get('url') or hit.get('videos', {}).get('medium', {}).get('url')
+            download_url = hit.get('videos', {}).get('medium', {}).get('url') or hit.get('videos', {}).get('large', {}).get('url')
+            
             if preview_url and download_url:
                 return {"preview_url": preview_url, "download_url": download_url, "source": "Pixabay"}
     except Exception:
@@ -173,32 +174,37 @@ def search_coverr_videos(query, per_page=1):
         pass
     return None
 
+# --- دالة Freesound المحدثة والآمنة ---
 def search_freesound(query, api_key):
     if not api_key:
-        st.error("عافاك دخل Freesound API Key فالشريط الجانبي.")
         return None
     
     url = "https://freesound.org/apiv2/search/text/"
+    # هنا السر: استعملنا الهيدرز (Headers) عوض الرابط
+    headers = {"Authorization": f"Token {api_key}"}
     params = {
         "query": query,
-        "token": api_key,
         "fields": "id,name,previews,license",
         "filter": "license:\"Creative Commons 0\"",
-        "page_size": 1
+        "page_size": 3 # نجيبو 3 نتائج باش نختارو الأحسن
     }
     try:
-        res = requests.get(url, params=params, timeout=10)
+        res = requests.get(url, headers=headers, params=params, timeout=10)
+        if res.status_code == 401:
+            st.error("❌ مفتاح Freesound API غير صالح. يرجى التحقق منه.")
+            return None
         res.raise_for_status()
         data = res.json()
         results = data.get('results', [])
+        
         if results:
-            first = results[0]
-            previews = first.get('previews', {})
-            # كناخدو رابط MP3 عالي الجودة
-            audio_url = previews.get('preview-hq-mp3')
-            if audio_url:
-                return {"url": audio_url, "name": first.get('name'), "license": first.get('license')}
-    except Exception:
+            for first in results:
+                previews = first.get('previews', {})
+                # نجيبو غير رابط MP3
+                audio_url = previews.get('preview-hq-mp3') or previews.get('preview-lq-mp3')
+                if audio_url:
+                    return {"url": audio_url, "name": first.get('name'), "license": first.get('license')}
+    except Exception as e:
         pass
     return None
 
@@ -403,35 +409,39 @@ elif st.session_state.current_step == 3:
     st.session_state.sfx_mode = sfx_mode
     
     if st.button(":material/search: جلب المؤثرات الصوتية", type="primary"):
-        with st.spinner("جاري جلب/توليد المؤثرات الصوتية..."):
-            for scene in st.session_state.script_data['scenes']:
-                scene_num = str(scene['scene_number'])
-                sfx_list = scene.get('sfx_keywords', [])
-                
-                if scene_num not in st.session_state.scene_assets:
-                    st.session_state.scene_assets[scene_num] = {}
-                
-                scene_assets = st.session_state.scene_assets[scene_num]
-                scene_assets['sfx_urls'] = []
-                
-                for sfx_kw in sfx_list:
-                    if sfx_mode == "البحث في Freesound (CC0)":
-                        sfx_result = search_freesound(sfx_kw, st.session_state.freesound_api_key)
-                        if sfx_result:
-                            scene_assets['sfx_urls'].append({"keyword": sfx_kw, "url": sfx_result['url'], "source": "Freesound"})
+        if not st.session_state.freesound_api_key and sfx_mode == "البحث في Freesound (CC0)":
+            st.error("⚠️ عافاك دخل Freesound API Key فالشريط الجانبي باش نقدرو نقلبو على المؤثرات.")
+        else:
+            with st.spinner("جاري جلب/توليد المؤثرات الصوتية..."):
+                for scene in st.session_state.script_data['scenes']:
+                    scene_num = str(scene['scene_number'])
+                    sfx_list = scene.get('sfx_keywords', [])
+                    
+                    if scene_num not in st.session_state.scene_assets:
+                        st.session_state.scene_assets[scene_num] = {}
+                    
+                    scene_assets = st.session_state.scene_assets[scene_num]
+                    scene_assets['sfx_urls'] = []
+                    
+                    for sfx_kw in sfx_list:
+                        st.write(f"جاري البحث عن: '{sfx_kw}'...")
+                        if sfx_mode == "البحث في Freesound (CC0)":
+                            sfx_result = search_freesound(sfx_kw, st.session_state.freesound_api_key)
+                            if sfx_result:
+                                scene_assets['sfx_urls'].append({"keyword": sfx_kw, "url": sfx_result['url'], "source": "Freesound"})
+                            else:
+                                st.warning(f"⚠️ لم يتم العثور على مؤثر لـ '{sfx_kw}' فـ Freesound.")
                         else:
-                            st.warning(f"لم يتم العثور على مؤثر لـ '{sfx_kw}' فـ Freesound.")
-                    else:
-                        sfx_data = generate_ai_sfx(sfx_kw, duration=2)
-                        if sfx_data:
-                            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
-                                tmp.write(sfx_data)
-                                sfx_path = tmp.name
-                            scene_assets['sfx_urls'].append({"keyword": sfx_kw, "url": sfx_path, "source": "AI"})
-                        else:
-                            st.warning(f"فشل توليد المؤثر لـ '{sfx_kw}' بالذكاء الاصطناعي.")
-            st.success("✅ تم جلب/توليد المؤثرات!")
-            st.rerun()
+                            sfx_data = generate_ai_sfx(sfx_kw, duration=2)
+                            if sfx_data:
+                                with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+                                    tmp.write(sfx_data)
+                                    sfx_path = tmp.name
+                                scene_assets['sfx_urls'].append({"keyword": sfx_kw, "url": sfx_path, "source": "AI"})
+                            else:
+                                st.warning(f"⚠️ فشل توليد المؤثر لـ '{sfx_kw}' بالذكاء الاصطناعي.")
+                st.success("✅ تم جلب/توليد المؤثرات!")
+                st.rerun()
 
     # عرض المؤثرات
     if st.session_state.scene_assets:
@@ -549,9 +559,9 @@ elif st.session_state.current_step == 5:
         scene_num = str(scene['scene_number'])
         selected_vid = st.session_state.scene_assets[scene_num].get('selected_video')
         
-        if selected_vid and 'preview_url' in selected_vid:
+        if selected_vid and selected_vid.get('preview_url'):
             st.write(f"**المشهد {scene_num}:**")
-            st.markdown(f"[🔗 شوف الفيديو]({selected_vid['preview_url']})")
+            st.markdown(f"[🔗 شوف الفيديو]({selected_vid.get('preview_url')})")
         else:
             st.warning(f"المشهد {scene_num}: ما لقيناش فيديو، غادي نستعملو خلفية سوداء.")
 
