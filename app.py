@@ -129,7 +129,7 @@ if not st.session_state.get('data_loaded', False):
     load_persistent_data()
     st.session_state.data_loaded = True
 
-# --- دوال مساعدة للبحث ---
+# --- دوال مساعدة للبحث (محدثة لجلب روابط المعاينة والتحميل) ---
 def search_pixabay_videos(query, api_key, per_page=6):
     if not api_key: return []
     url = "https://pixabay.com/api/videos/"
@@ -137,7 +137,21 @@ def search_pixabay_videos(query, api_key, per_page=6):
     try:
         res = requests.get(url, params=params, timeout=10)
         res.raise_for_status()
-        return res.json().get('hits', [])
+        hits = res.json().get('hits', [])
+        options = []
+        for hit in hits:
+            # رابط المعاينة (نسخة صغيرة جدا باش تتحمل دغيا)
+            preview_url = hit['videos'].get('tiny', {}).get('url') or hit['videos'].get('small', {}).get('url') or hit['videos'].get('medium', {}).get('url')
+            # رابط التحميل النهائي (نسخة متوسطة أو كبيرة للجودة)
+            download_url = hit['videos'].get('medium', {}).get('url') or hit['videos'].get('large', {}).get('url')
+            
+            if preview_url and download_url:
+                options.append({
+                    "preview_url": preview_url,
+                    "download_url": download_url,
+                    "source": "Pixabay"
+                })
+        return options
     except Exception:
         return []
 
@@ -147,7 +161,19 @@ def search_coverr_videos(query, per_page=3):
     try:
         res = requests.get(url, params=params, timeout=10)
         res.raise_for_status()
-        return res.json().get('hits', [])
+        hits = res.json().get('hits', [])
+        options = []
+        for hit in hits:
+            urls = hit.get('urls', {})
+            preview_url = urls.get('mp4_720') or urls.get('mp4_1080') or urls.get('mp4_download')
+            download_url = urls.get('mp4_1080') or urls.get('mp4_download')
+            if preview_url and download_url:
+                options.append({
+                    "preview_url": preview_url,
+                    "download_url": download_url,
+                    "source": "Coverr"
+                })
+        return options
     except Exception:
         return []
 
@@ -250,7 +276,7 @@ if st.session_state.current_step == 1:
                     response = client.models.generate_content(model=st.session_state.gemini_model, contents=prompt, config=types.GenerateContentConfig(response_mime_type="application/json"))
                     txt = response.text.strip().replace("```json", "").replace("```", "")
                     st.session_state.script_data = json.loads(txt)
-                    st.session_state.scene_assets = {} # تصفير الأصول القديمة
+                    st.session_state.scene_assets = {} 
                     st.success("✅ السيناريو جاهز!")
                 except Exception as e:
                     st.error(f"خطأ: {e}")
@@ -306,7 +332,6 @@ elif st.session_state.current_step == 2:
             except Exception as e:
                 st.error(f"خطأ: {e}")
 
-    # عرض الأصوات
     if st.session_state.scene_assets:
         for scene in st.session_state.script_data['scenes']:
             scene_num = str(scene['scene_number'])
@@ -335,13 +360,11 @@ elif st.session_state.current_step == 3:
         scene_num = str(scene['scene_number'])
         st.subheader(f"المشهد {scene_num}: {scene['location']}")
         
-        # تهيئة البيانات إذا لم تكن موجودة
         if scene_num not in st.session_state.scene_assets:
             st.session_state.scene_assets[scene_num] = {"selected_videos": [], "video_options": []}
         if "selected_videos" not in st.session_state.scene_assets[scene_num]:
             st.session_state.scene_assets[scene_num]["selected_videos"] = []
         
-        # عرض المقاطع المختارة حالياً
         st.write("### المقاطع المختارة حالياً:")
         if not st.session_state.scene_assets[scene_num]["selected_videos"]:
             st.warning("لم يتم اختيار أي مقطع بعد. سيتم استخدام خلفية سوداء.")
@@ -349,34 +372,42 @@ elif st.session_state.current_step == 3:
             for i, selected_vid in enumerate(st.session_state.scene_assets[scene_num]["selected_videos"]):
                 col1, col2 = st.columns([4, 1])
                 with col1:
-                    st.video(selected_vid['url'])
+                    try:
+                        # تحميل الفيديو للمعاينة من الذاكرة
+                        vid_data = requests.get(selected_vid['preview_url'], timeout=10).content
+                        st.video(vid_data)
+                    except:
+                        st.write("لا يمكن تحميل المعاينة")
                 with col2:
                     if st.button("❌ حذف", key=f"del_{scene_num}_{i}"):
                         st.session_state.scene_assets[scene_num]["selected_videos"].pop(i)
                         st.rerun()
 
-        # البحث وإضافة مقاطع جديدة
         st.write("### إضافة مقاطع جديدة:")
         search_kw = st.text_input(f"كلمة البحث للمشهد {scene_num}:", value=scene.get('search_keyword', ''), key=f"kw_{scene_num}")
         
         if st.button(f"🔍 بحث عن فيديوهات للمشهد {scene_num}", key=f"search_{scene_num}"):
             with st.spinner("جاري البحث..."):
-                options = []
-                hits = search_pixabay_videos(search_kw, st.session_state.pixabay_api_key)
-                for hit in hits:
-                    # جلب الفيديو بجودة متوسطة باش يتحمل ديريكت
-                    video_url = hit['videos'].get('medium', {}).get('url') or hit['videos'].get('small', {}).get('url') or hit['videos'].get('large', {}).get('url')
-                    if video_url: options.append({"url": video_url, "source": "Pixabay"})
+                options = search_pixabay_videos(search_kw, st.session_state.pixabay_api_key)
+                if not options: # إذا ما لقيناش فـ Pixabay، نقلبو فـ Coverr
+                    options = search_coverr_videos(search_kw)
+                
                 st.session_state.scene_assets[scene_num]["video_options"] = options
                 st.rerun()
 
         # عرض خيارات الفيديو
         if st.session_state.scene_assets[scene_num].get("video_options"):
             options = st.session_state.scene_assets[scene_num]["video_options"]
-            cols = st.columns(min(len(options), 3)) # عرض 3 كحد أقصى في الصف
+            cols = st.columns(min(len(options), 3)) 
             for i, opt in enumerate(options):
                 with cols[i % 3]:
-                    st.video(opt['url'])
+                    try:
+                        # هنا السر: تحميل الفيديو الصغير فـ الذاكرة وعرضو ديريكت
+                        vid_data = requests.get(opt['preview_url'], timeout=10).content
+                        st.video(vid_data)
+                    except:
+                        st.write("لا يمكن تحميل المعاينة")
+                    
                     st.caption(f"المصدر: {opt['source']}")
                     if st.button(f"➕ إضافة للمشهد", key=f"add_{scene_num}_{i}"):
                         st.session_state.scene_assets[scene_num]["selected_videos"].append(opt)
@@ -435,19 +466,18 @@ elif st.session_state.current_step == 4:
                     
                     audio_tracks.append(voiceover_clip.with_start(current_time))
                     
-                    # --- الفيديو (معالجة أكثر من مقطع إذا وجد) ---
+                    # --- الفيديو ---
                     selected_videos = assets.get('selected_videos', [])
                     
                     if not selected_videos:
-                        # خلفية سوداء
                         clip = ColorClip(size=(target_w, target_h), color=(0,0,0), duration=scene_duration)
                         video_clips.append(clip.with_start(current_time))
                     else:
-                        # تقسيم المدة على عدد المقاطع
                         duration_per_clip = scene_duration / len(selected_videos)
                         
                         for vid_idx, vid_info in enumerate(selected_videos):
-                            video_url = vid_info['url']
+                            # هنا كنحملو النسخة الكبيرة ديال الفيديو باش الجودة تكون مزيانة
+                            video_url = vid_info['download_url'] 
                             vid_data = requests.get(video_url).content
                             with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_vid:
                                 tmp_vid.write(vid_data)
@@ -455,7 +485,7 @@ elif st.session_state.current_step == 4:
                                 temp_files.append(vid_path)
                             
                             clip = VideoFileClip(vid_path)
-                            clip = clip.without_audio() # إزالة الصوت الأصلي
+                            clip = clip.without_audio() 
                             
                             if clip.duration >= duration_per_clip:
                                 clip = clip.subclipped(0, duration_per_clip)
@@ -467,7 +497,6 @@ elif st.session_state.current_step == 4:
                             if clip.w < target_w: clip = clip.resized(width=target_w)
                             clip = clip.cropped(x_center=clip.w/2, y_center=clip.h/2, width=target_w, height=target_h)
                             
-                            # توقيت بداية المقطع
                             start_time_clip = current_time + (vid_idx * duration_per_clip)
                             video_clips.append(clip.with_start(start_time_clip))
 
