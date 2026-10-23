@@ -20,6 +20,7 @@ st.title("🎬 استوديو الذكاء الاصطناعي الشامل")
 # --- المفاتيح المحفوظة (Defaults) ---
 DEFAULT_PIXABAY_API_KEY = "58178676-7dca3797f2ac366b67263077a"
 DEFAULT_ACESTEP_API_KEY = "821f692a10974eaa960316f37a9001f6"
+DEFAULT_GEMINI_MODEL = "gemini-2.5-flash" # النموذج الافتراضي الجديد
 
 # --- إعدادات الحفظ الدائم ---
 DATA_DIR = "persistent_data"
@@ -45,6 +46,10 @@ def load_persistent_data():
             st.session_state.pixabay_api_key = saved_pixabay if saved_pixabay else DEFAULT_PIXABAY_API_KEY
             
             st.session_state.hf_api_key = data.get("hf_api_key", "")
+            
+            # استرجاع النموذج المحفوظ
+            saved_model = data.get("gemini_model", "")
+            st.session_state.gemini_model = saved_model if saved_model else DEFAULT_GEMINI_MODEL
             
             main_audio_path = os.path.join(AUDIO_DIR, "main_voice.wav")
             if os.path.exists(main_audio_path):
@@ -72,6 +77,7 @@ def save_persistent_data():
             "acestep_api_key": st.session_state.get("acestep_api_key_input", DEFAULT_ACESTEP_API_KEY),
             "pixabay_api_key": st.session_state.get("pixabay_api_key_input", DEFAULT_PIXABAY_API_KEY),
             "hf_api_key": st.session_state.get("hf_api_key_input", ""),
+            "gemini_model": st.session_state.get("gemini_model_input", DEFAULT_GEMINI_MODEL), # حفظ النموذج
         }
         with open(STATE_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
@@ -101,6 +107,7 @@ if 'saved_api_key' not in st.session_state: st.session_state.saved_api_key = ""
 if 'acestep_api_key' not in st.session_state: st.session_state.acestep_api_key = DEFAULT_ACESTEP_API_KEY
 if 'pixabay_api_key' not in st.session_state: st.session_state.pixabay_api_key = DEFAULT_PIXABAY_API_KEY
 if 'hf_api_key' not in st.session_state: st.session_state.hf_api_key = ""
+if 'gemini_model' not in st.session_state: st.session_state.gemini_model = DEFAULT_GEMINI_MODEL
 
 if not st.session_state.get('data_loaded', False):
     load_persistent_data()
@@ -159,12 +166,18 @@ with st.sidebar:
         st.session_state.saved_api_key = gemini_api_key
         save_persistent_data()
     
-    acestep_api_key = st.text_input("2. ACE Music API Key (مجاني):", value=st.session_state.acestep_api_key, type="password", key="acestep_api_key_input")
+    # --- خانة اسم النموذج الجديدة ---
+    gemini_model_input = st.text_input("2. Gemini Model Name:", value=st.session_state.gemini_model, key="gemini_model_input", help="مثال: gemini-2.5-flash أو gemini-3.8-flash")
+    if gemini_model_input != st.session_state.gemini_model:
+        st.session_state.gemini_model = gemini_model_input
+        save_persistent_data()
+
+    acestep_api_key = st.text_input("3. ACE Music API Key (مجاني):", value=st.session_state.acestep_api_key, type="password", key="acestep_api_key_input")
     if acestep_api_key != st.session_state.acestep_api_key:
         st.session_state.acestep_api_key = acestep_api_key
         save_persistent_data()
 
-    hf_api_key = st.text_input("3. Hugging Face API Key (اختياري):", value=st.session_state.hf_api_key, type="password", key="hf_api_key_input")
+    hf_api_key = st.text_input("4. Hugging Face API Key (اختياري):", value=st.session_state.hf_api_key, type="password", key="hf_api_key_input")
     if hf_api_key != st.session_state.hf_api_key:
         st.session_state.hf_api_key = hf_api_key
         save_persistent_data()
@@ -268,7 +281,43 @@ with tab1:
                 import google.generativeai as genai
                 with st.spinner("جاري تحليل السيناريو واستخراج المؤثرات الصوتية..."):
                     genai.configure(api_key=gemini_api_key)
-                    model = genai.GenerativeModel("gemini-1.5-flash")
+                    
+                    # --- نظام الحماية والتحديث التلقائي (Auto-Fallback) ---
+                    current_model = st.session_state.gemini_model
+                    fallback_models = ["gemini-2.5-flash", "gemini-3.8-flash", "gemini-1.5-flash-latest", "gemini-pro"]
+                    
+                    res = None
+                    try:
+                        model = genai.GenerativeModel(current_model)
+                        # نجربو نولدو محتوى بسيط باش نتأكدو واش النموذج خدام
+                        test_res = model.generate_content("Test")
+                        res = model # إلا خدم، كنحتفظو بيه
+                    except Exception as e:
+                        if "404" in str(e) or "not found" in str(e).lower():
+                            st.warning(f"⚠️ النموذج '{current_model}' غير متوفر حالياً. جاري البحث التلقائي عن نموذج بديل...")
+                            for fallback in fallback_models:
+                                try:
+                                    test_model = genai.GenerativeModel(fallback)
+                                    test_model.generate_content("Test")
+                                    res = test_model
+                                    # تحديث الواجهة والذاكرة بالنموذج الجديد اللي خدم
+                                    st.session_state.gemini_model = fallback
+                                    save_persistent_data()
+                                    st.success(f"✅ تم التحديث التلقائي للنموذج إلى: {fallback}")
+                                    time.sleep(1.5) # باش المستخدم يشوف الرسالة
+                                    st.rerun() # إعادة تشغيل الصفحة باش تتحدث الخانة الجانبية
+                                    break
+                                except:
+                                    continue
+                            
+                            if res is None:
+                                st.error("❌ فشلت جميع النماذج البديلة. يرجى كتابة اسم نموذج صالح في الشريط الجانبي.")
+                                st.stop()
+                        else:
+                            raise e
+
+                    # إذا وصلنا هنا، النموذج خدام (إما الأصلي أو البديل)
+                    model = res
                     
                     if work_mode == "توليد سيناريو جديد":
                         if not topic: st.warning("عافاك كتب شي فكرة.")
@@ -295,8 +344,8 @@ with tab1:
                                     }}
                                 ]
                             }}"""
-                            res = model.generate_content(prompt)
-                            txt = res.text.strip().replace("```json", "").replace("```", "")
+                            res_content = model.generate_content(prompt)
+                            txt = res_content.text.strip().replace("```json", "").replace("```", "")
                             st.session_state.script_data = json.loads(txt)
                             st.success("✅ السيناريو جاهز!")
                     else:
@@ -323,13 +372,13 @@ with tab1:
                                         }}
                                     ]
                                 }}"""
-                                res = model.generate_content(prompt)
-                                txt = res.text.strip().replace("```json", "").replace("```", "")
+                                res_content = model.generate_content(prompt)
+                                txt = res_content.text.strip().replace("```json", "").replace("```", "")
                                 st.session_state.script_data = json.loads(txt)
                                 st.session_state.last_custom_script = custom_script
                                 st.success("✅ تم تحليل السيناريو!")
 
-                    # --- الحماية ببايثون (Python Fallback) ---
+                    # --- الحماية ببايثون (Python Fallback) للمؤثرات ---
                     for scene in st.session_state.script_data.get('scenes', []):
                         sfx_list = scene.get('sfx_keywords', [])
                         if isinstance(sfx_list, str): sfx_list = [sfx_list]
@@ -368,8 +417,8 @@ with tab1:
                         
                         tts_instruction = f"اقرأ النص باللهجة {language}. الأسلوب: {style_prompt}. ممنوع تنطق ما بين الأقواس. النص: {full_dialogue}"
                         
-                        res = client.models.generate_content(
-                            model="gemini-3.8-flash-tts", 
+                        res_tts = client.models.generate_content(
+                            model="gemini-3.8-flash-tts", # نستعملو نموذج الصوت المخصص
                             contents=tts_instruction,
                             config=types.GenerateContentConfig(
                                 response_modalities=["AUDIO"],
@@ -377,8 +426,8 @@ with tab1:
                             )
                         )
                         
-                        if res.candidates and res.candidates[0].content.parts and res.candidates[0].content.parts[0].inline_data is not None:
-                            audio_data = res.candidates[0].content.parts[0].inline_data.data
+                        if res_tts.candidates and res_tts.candidates[0].content.parts and res_tts.candidates[0].content.parts[0].inline_data is not None:
+                            audio_data = res_tts.candidates[0].content.parts[0].inline_data.data
                             st.session_state.full_audio_bytes = audio_data
                             st.success("✅ الصوت جاهز!")
                             st.audio(audio_data, format="audio/wav")
