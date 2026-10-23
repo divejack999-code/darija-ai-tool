@@ -268,7 +268,7 @@ with tab1:
                     genai.configure(api_key=gemini_api_key)
                     model = genai.GenerativeModel("gemini-1.5-flash")
                     
-                    # --- التعديل الجديد: إجبار الذكاء الاصطناعي على استخراج المؤثرات ---
+                    # --- البرومت الجديد القاسي ---
                     if work_mode == "توليد سيناريو جديد":
                         if not topic: st.warning("عافاك كتب شي فكرة.")
                         else:
@@ -276,17 +276,10 @@ with tab1:
                             الموضوع: {topic}
                             الستايل: {tone}
                             
-                            المطلوب منك في كل مشهد:
-                            1. كتابة الحوار.
-                            2. وصف بصري.
-                            3. كلمة بحث إنجليزية للفيديو (search_keyword).
-                            4. **كلمة بحث إنجليزية للمؤثر الصوتي (sfx_keyword) بناءً على وصف المشهد.** 
-                               - كن دقيقاً جداً! 
-                               - إذا كان المشهد فيه ريح، اكتب "wind". 
-                               - إذا كان فيه خطوات، اكتب "footsteps". 
-                               - إذا كان فيه انفجار، اكتب "explosion". 
-                               - إذا كان فيه توتر، اكتب "suspense". 
-                               - **ممنوع تماماً ترك هذا الحقل فارغاً أو كتابة N/A.**
+                            تحذير خطير جداً: فـ كل مشهد، خاصك تعمر الخانة ديال "sfx_keyword" بكلمة إنجليزية وحدة فقط (One Word Only) تصف المؤثر الصوتي المناسب للمشهد. 
+                            إلا ما عمرتيهاش، غادي يطيح السيناريو (Error). ممنوع تكتب N/A أو تخليها خاوية.
+                            
+                            أمثلة للمؤثرات: wind, footsteps, rain, tension, explosion, whoosh, fire.
                             
                             خاصك ترجع الجواب على شكل JSON فقط بهذا الهيكل:
                             {{
@@ -295,9 +288,9 @@ with tab1:
                                     {{
                                         "scene_number": 1,
                                         "location": "مكان",
-                                        "visual_description": "وصف",
-                                        "search_keyword": "English keywords for video search",
-                                        "sfx_keyword": "specific English keyword for sound effect",
+                                        "visual_description": "وصف بصري طويل",
+                                        "search_keyword": "english keywords for video",
+                                        "sfx_keyword": "wind",
                                         "dialogue": "الحوار"
                                     }}
                                 ]
@@ -305,16 +298,30 @@ with tab1:
                             res = model.generate_content(prompt)
                             txt = res.text.strip().replace("```json", "").replace("```", "")
                             st.session_state.script_data = json.loads(txt)
+                            
+                            # --- الحماية بالبايثون (Python Fallback) ---
+                            for scene in st.session_state.script_data.get('scenes', []):
+                                sfx = scene.get('sfx_keyword')
+                                if not sfx or str(sfx).strip().lower() in ['n/a', 'none', 'null', '']:
+                                    # إلا ما عطاش الذكاء الاصطناعي، كنستخرجو الكلمة من الوصف
+                                    visual = str(scene.get('visual_description', '')).lower()
+                                    if "wind" in visual or "ريح" in visual: scene['sfx_keyword'] = "wind"
+                                    elif "footsteps" in visual or "walk" in visual or "مشي" in visual: scene['sfx_keyword'] = "footsteps"
+                                    elif "rain" in visual or "مطر" in visual: scene['sfx_keyword'] = "rain"
+                                    else: scene['sfx_keyword'] = "cinematic"
+                            
                             st.success("✅ السيناريو والمؤثرات جاهزين!")
                     else:
                         if not custom_script: st.warning("عافاك لصق السيناريو.")
                         else:
                             full_dialogue = custom_script
                             if st.session_state.last_custom_script != custom_script:
-                                prompt = f"""أنت مهندس صوت سينمائي. قسم هذا السيناريو لمشاهد واستخرج المؤثرات الصوتية المناسبة لكل مشهد.
+                                prompt = f"""أنت مهندس صوت سينمائي. قسم هذا السيناريو لمشاهد واستخرج المؤثرات الصوتية المناسبة.
                                 النص: {custom_script}
                                 
-                                أرجع JSON فقط بهذا الهيكل:
+                                تحذير: خاصك تعمر "sfx_keyword" بكلمة إنجليزية وحدة فقط. ممنوع N/A.
+                                
+                                رجع JSON فقط:
                                 {{
                                     "title":"عنوان",
                                     "scenes":[
@@ -323,7 +330,7 @@ with tab1:
                                             "location":"مكان",
                                             "visual_description":"وصف",
                                             "search_keyword":"english keywords for video",
-                                            "sfx_keyword":"specific English keyword for sound effect (e.g., wind, footsteps, suspense)",
+                                            "sfx_keyword":"wind",
                                             "dialogue":"الحوار الأصلي"
                                         }}
                                     ]
@@ -332,6 +339,12 @@ with tab1:
                                 txt = res.text.strip().replace("```json", "").replace("```", "")
                                 st.session_state.script_data = json.loads(txt)
                                 st.session_state.last_custom_script = custom_script
+                                
+                                # الحماية بالبايثون
+                                for scene in st.session_state.script_data.get('scenes', []):
+                                    if not scene.get('sfx_keyword') or str(scene['sfx_keyword']).lower() in ['n/a', '']:
+                                        scene['sfx_keyword'] = "cinematic"
+                                
                                 st.success("✅ تم تحليل السيناريو واستخراج المؤثرات!")
             except Exception as e:
                 st.error(f"خطأ: {e}")
@@ -341,13 +354,7 @@ with tab1:
                 for scene in st.session_state.script_data.get('scenes', []):
                     with st.expander(f"المشهد {scene['scene_number']}"):
                         st.write(f"**البحث:** {scene.get('search_keyword', 'N/A')}")
-                        
-                        # هنا كنعرضو المؤثر الصوتي اللي استخرجه الذكاء الاصطناعي
-                        sfx_display = scene.get('sfx_keyword')
-                        if not sfx_display or sfx_display == "N/A" or sfx_display is None:
-                            sfx_display = "⚠️ غير محدد"
-                        st.write(f"**المؤثر الصوتي:** {sfx_display}")
-                        
+                        st.write(f"**المؤثر الصوتي:** {scene.get('sfx_keyword', 'N/A')}")
                         st.write(f"**الحوار:** {scene['dialogue']}")
                         full_dialogue += scene['dialogue'] + " "
 
@@ -523,7 +530,7 @@ with tab3:
 
                                     # --- 3. البحث عن المؤثر الصوتي ودمجه ---
                                     sfx_keyword = scene.get('sfx_keyword')
-                                    if not sfx_keyword or sfx_keyword == "N/A":
+                                    if not sfx_keyword or str(sfx_keyword).lower() in ['n/a', 'none', '']:
                                         sfx_keyword = "cinematic"
                                     
                                     st.write(f"🔊 كنقلب على مؤثر صوتي: '{sfx_keyword}'...")
