@@ -12,6 +12,8 @@ import shutil
 from PIL import Image
 from moviepy import ImageClip, AudioFileClip, concatenate_videoclips, VideoFileClip, CompositeVideoClip, ColorClip, vfx, CompositeAudioClip, concatenate_audioclips
 from docx import Document
+from google import genai
+from google.genai import types
 
 # --- إعدادات الواجهة ---
 st.set_page_config(page_title="AI Studio: Darija & Amazigh", page_icon="🎬", layout="wide")
@@ -20,12 +22,12 @@ st.title("🎬 استوديو الذكاء الاصطناعي الشامل")
 # --- المفاتيح المحفوظة (Defaults) ---
 DEFAULT_PIXABAY_API_KEY = "58178676-7dca3797f2ac366b67263077a"
 DEFAULT_ACESTEP_API_KEY = "821f692a10974eaa960316f37a9001f6"
-DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite" # النموذج الافتراضي الجديد (عندو 500 طلب فاليوم)
+DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
 
 # --- قائمة النماذج البديلة (Fallback Chain) ---
 FALLBACK_MODELS = [
-    "gemini-3.5-flash-lite", 
-    "gemini-3.1-flash-lite", 
+    "gemini-3.5-flash-lite",
+    "gemini-3.1-flash-lite",
     "gemini-2.5-flash-lite",
     "gemini-2.5-flash",
     "gemini-1.5-flash-latest"
@@ -176,7 +178,6 @@ with st.sidebar:
     
     gemini_model_input = st.text_input("2. Gemini Model Name:", value=st.session_state.gemini_model, key="gemini_model_input", help="مثال: gemini-3.5-flash-lite")
     
-    # --- الحماية: إلا كانت الخانة خاوية، كنعمرها بالنموذج الافتراضي ---
     if not gemini_model_input.strip():
         gemini_model_input = DEFAULT_GEMINI_MODEL
         st.session_state.gemini_model = DEFAULT_GEMINI_MODEL
@@ -291,48 +292,41 @@ with tab1:
         else:
             full_dialogue = ""
             try:
-                import google.generativeai as genai
-                from google.api_core.exceptions import ResourceExhausted
-                
                 with st.spinner("جاري تحليل السيناريو واستخراج المؤثرات الصوتية..."):
-                    genai.configure(api_key=gemini_api_key)
+                    client = genai.Client(api_key=gemini_api_key)
                     
-                    # --- نظام الحماية والتحديث التلقائي (Auto-Fallback) ---
                     current_model = st.session_state.gemini_model.strip() if st.session_state.gemini_model else ""
-                    
-                    # كنحضرو اللائحة: إلا كان النموذج الحالي صالح كنزيدوه، وإلا كنبداو ديريكت بالنماذج البديلة
                     models_to_try = []
                     if current_model:
                         models_to_try.append(current_model)
                     models_to_try.extend([m for m in FALLBACK_MODELS if m != current_model])
                     
-                    model = None
                     used_model_name = None
+                    model_working = False
                     
                     for model_name in models_to_try:
                         try:
-                            test_model = genai.GenerativeModel(model_name)
-                            # نجربو نطلب طلب بسيط باش نتأكدو واش خدام
-                            test_model.generate_content("Hi", generation_config={"max_output_tokens": 5})
-                            model = test_model
+                            # اختبار سريع للتأكد من أن النموذج يعمل
+                            client.models.generate_content(
+                                model=model_name, 
+                                contents="Hi", 
+                                config=types.GenerateContentConfig(max_output_tokens=5)
+                            )
                             used_model_name = model_name
-                            break # إلا خدم، كنخرجو من الحلقة
-                        except ResourceExhausted:
-                            st.warning(f"⚠️ النموذج '{model_name}' وصل للحد الأقصى. جاري تجربة نموذج آخر...")
-                            continue
+                            model_working = True
+                            break
                         except Exception as e:
-                            # إلا كان خطأ 404 (غير موجود) ولا 400 (فورمات غالط) كنكملو للبديل
-                            if "404" in str(e) or "400" in str(e) or "not found" in str(e).lower() or "unexpected model name" in str(e).lower():
+                            if "429" in str(e):
+                                st.warning(f"⚠️ النموذج '{model_name}' وصل للحد الأقصى. جاري تجربة نموذج آخر...")
+                            elif "404" in str(e) or "not found" in str(e).lower() or "400" in str(e) or "unexpected model name" in str(e).lower():
                                 st.warning(f"⚠️ النموذج '{model_name}' غير متوفر أو غير صالح. جاري تجربة نموذج آخر...")
-                                continue
                             else:
                                 raise e
                     
-                    if model is None:
-                        st.error("❌ فشلت جميع النماذج المتاحة (إما غير متوفرة أو وصلت للحد الأقصى). يرجى المحاولة لاحقاً أو استخدام مفتاح API آخر.")
+                    if not model_working:
+                        st.error("❌ فشلت جميع النماذج المتاحة. يرجى المحاولة لاحقاً أو استخدام مفتاح API آخر.")
                         st.stop()
                     
-                    # إلا لقينا نموذج بديل خدام، كنحدثو الواجهة والذاكرة
                     if used_model_name != st.session_state.gemini_model:
                         st.session_state.gemini_model = used_model_name
                         save_persistent_data()
@@ -365,8 +359,12 @@ with tab1:
                                     }}
                                 ]
                             }}"""
-                            res_content = model.generate_content(prompt)
-                            txt = res_content.text.strip().replace("```json", "").replace("```", "")
+                            response = client.models.generate_content(
+                                model=used_model_name,
+                                contents=prompt,
+                                config=types.GenerateContentConfig(response_mime_type="application/json")
+                            )
+                            txt = response.text.strip().replace("```json", "").replace("```", "")
                             st.session_state.script_data = json.loads(txt)
                             st.success("✅ السيناريو جاهز!")
                     else:
@@ -393,8 +391,12 @@ with tab1:
                                         }}
                                     ]
                                 }}"""
-                                res_content = model.generate_content(prompt)
-                                txt = res_content.text.strip().replace("```json", "").replace("```", "")
+                                response = client.models.generate_content(
+                                    model=used_model_name,
+                                    contents=prompt,
+                                    config=types.GenerateContentConfig(response_mime_type="application/json")
+                                )
+                                txt = response.text.strip().replace("```json", "").replace("```", "")
                                 st.session_state.script_data = json.loads(txt)
                                 st.session_state.last_custom_script = custom_script
                                 st.success("✅ تم تحليل السيناريو!")
@@ -432,13 +434,9 @@ with tab1:
             if audio_option == "توليد الصوت بالذكاء الاصطناعي" and full_dialogue.strip():
                 with st.spinner("جاري توليد الصوت..."):
                     try:
-                        from google import genai as google_genai
-                        from google.genai import types
-                        client = google_genai.Client(api_key=gemini_api_key)
-                        
                         tts_instruction = f"اقرأ النص باللهجة {language}. الأسلوب: {style_prompt}. ممنوع تنطق ما بين الأقواس. النص: {full_dialogue}"
                         
-                        res_tts = client.models.generate_content(
+                        response_tts = client.models.generate_content(
                             model="gemini-3.8-flash-tts",
                             contents=tts_instruction,
                             config=types.GenerateContentConfig(
@@ -447,8 +445,8 @@ with tab1:
                             )
                         )
                         
-                        if res_tts.candidates and res_tts.candidates[0].content.parts and res_tts.candidates[0].content.parts[0].inline_data is not None:
-                            audio_data = res_tts.candidates[0].content.parts[0].inline_data.data
+                        if response_tts.candidates and response_tts.candidates[0].content.parts and response_tts.candidates[0].content.parts[0].inline_data is not None:
+                            audio_data = response_tts.candidates[0].content.parts[0].inline_data.data
                             st.session_state.full_audio_bytes = audio_data
                             st.success("✅ الصوت جاهز!")
                             st.audio(audio_data, format="audio/wav")
@@ -608,9 +606,7 @@ with tab3:
                                         clip = ColorClip(size=(target_w, target_h), color=(0,0,0), duration=duration_per_scene).with_effects([vfx.FadeIn(0.5), vfx.FadeOut(0.5)])
                                         video_clips.append(clip)
 
-                                    # --- 3. البحث عن المؤثرات الصوتية المتعددة ودمجها ---
                                     sfx_keywords = scene.get('sfx_keywords', [])
-                                    
                                     for idx, sfx_kw in enumerate(sfx_keywords):
                                         st.write(f"🔊 كنقلب على مؤثر صوتي {idx+1}: '{sfx_kw}'...")
                                         sfx_url = search_sfxmint(sfx_kw)
@@ -685,10 +681,17 @@ with tab5:
             if st.button("🎵 توليد الموسيقى (Lyria)", use_container_width=True):
                 with st.spinner("جاري التوليد..."):
                     try:
-                        from google import genai as google_genai
-                        client = google_genai.Client(api_key=gemini_api_key)
-                        res = client.models.generate_content(model="lyria-3-clip-preview", contents=music_prompt)
-                        audio_data = next((part.inline_data.data for part in res.parts if part.inline_data), None)
+                        client = genai.Client(api_key=gemini_api_key)
+                        response = client.models.generate_content(
+                            model="lyria-3-clip-preview", 
+                            contents=music_prompt
+                        )
+                        audio_data = None
+                        if response.candidates and response.candidates[0].content.parts:
+                            for part in response.candidates[0].content.parts:
+                                if part.inline_data:
+                                    audio_data = part.inline_data.data
+                                    break
                         if audio_data:
                             st.session_state.background_music_bytes = audio_data
                             save_persistent_data()
